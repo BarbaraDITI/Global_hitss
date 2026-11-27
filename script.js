@@ -2,7 +2,7 @@
 // 1. CONFIGURACIÓN Y CONEXIÓN A SUPABASE
 // ============================================================================
 const SUPABASE_URL = 'https://tjflvdvnsxmrkouleoyn.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_-1DlkWkPrU2UeogbcApIzQ_NUVR58_4'; // Ej: sb_publishable_...
+const SUPABASE_ANON_KEY = 'PEGA_AQUI_TU_CLAVE_PUBLISHABLE'; // Ej: sb_publishable_...
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const URL_MICROSOFT_FORMS = "https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=CkbVXyW03kmb0PzSYnDTDHJyTl3EI1JImzWpf0AOFcFUQVRVUkRGUUlNNzhDUktCNjBSN0hQOVozWi4u";
@@ -250,6 +250,7 @@ function procesarTextoTOA() {
 function actualizarSubcategorias() {
     const cat = document.getElementById('cat-principal').value;
     const selectSub = document.getElementById('sub-motivo');
+    if (!selectSub) return;
     selectSub.innerHTML = '';
     (SUBMOTIVOS_CONFIG[cat] || []).forEach(sub => {
         const opt = document.createElement('option');
