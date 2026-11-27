@@ -7,9 +7,10 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const URL_MICROSOFT_FORMS = "https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=CkbVXyW03kmb0PzSYnDTDHJyTl3EI1JImzWpf0AOFcFUQVRVUkRGUUlNNzhDUktCNjBSN0hQOVozWi4u";
 
+// NUEVAS METAS OPERATIVAS ACTUALIZADAS
 const METAS_DIARIAS = {
-    'Full Time': 45,
-    'Part Time': 25
+    'Full Time': { sots: 85, minutosHablados: 150 },
+    'Part Time': { sots: 45, minutosHablados: 90 }
 };
 
 const SUBMOTIVOS_CONFIG = {
@@ -44,6 +45,8 @@ let usuarioActivo = null;
 let usuarioTemporal = null;
 let gestionesDelDiaLocal = [];
 let horaInicioActividad = new Date().toISOString();
+let chartHorasInstance = null;
+let chartGestionesInstance = null;
 
 // ============================================================================
 // 2. INICIALIZACIÓN
@@ -74,7 +77,7 @@ function obtenerHoraLima() {
 }
 
 // ============================================================================
-// 3. CONTROL DE ACCESO INTELIGENTE (CON DIAGNÓSTICO DE CONEXIÓN)
+// 3. CONTROL DE ACCESO INTELIGENTE
 // ============================================================================
 async function verificarCodigoE() {
     const codigo = document.getElementById('input-codigo-e').value.toUpperCase().trim();
@@ -217,7 +220,7 @@ function cerrarSesion() {
 }
 
 // ============================================================================
-// 4. OPERACIÓN DEL ASESOR (REGEX TOA + PLANTILLA + SUPABASE + FORMS)
+// 4. OPERACIÓN DEL ASESOR
 // ============================================================================
 function procesarTextoTOA() {
     const raw = document.getElementById('texto-toa').value;
@@ -243,7 +246,6 @@ function procesarTextoTOA() {
             break;
         }
     }
-
     mostrarToast("✅ Datos extraídos de TOA");
 }
 
@@ -292,16 +294,11 @@ ASESOR: ${usuarioActivo.nombre_completo} (${usuarioActivo.codigo_e})`;
 
     document.getElementById('plantilla-resultado').value = plantillaTexto;
 
-    try {
-        await navigator.clipboard.writeText(plantillaTexto);
-    } catch (e) {
-        console.warn("No se pudo copiar automáticamente:", e);
-    }
+    try { await navigator.clipboard.writeText(plantillaTexto); } catch (e) {}
 
     const yaTieneGestionHoy = gestionesDelDiaLocal.some(g => g.sot === sot) ? 'SI' : 'NO';
     if (yaTieneGestionHoy === 'SI') {
-        const confirmar = confirm(`⚠️ La SOT ${sot} ya registra una gestión previa hoy (se marcará ¿YA TIENE GESTION? = SI). ¿Continuar?`);
-        if (!confirmar) return;
+        if (!confirm(`⚠️ La SOT ${sot} ya registra una gestión previa hoy (se marcará ¿YA TIENE GESTION? = SI). ¿Continuar?`)) return;
     }
 
     const abrirForms = document.getElementById('check-abrir-forms').checked;
@@ -332,7 +329,7 @@ ASESOR: ${usuarioActivo.nombre_completo} (${usuarioActivo.codigo_e})`;
     if (error) {
         mostrarToast("⚠️ Copiada, pero falló guardado en nube: " + error.message);
     } else {
-        mostrarToast("✅ Plantilla copiada y SOT registrada en BD");
+        mostrarToast("🎄 Plantilla copiada y SOT registrada");
         cargarDatosPersonalesADP();
     }
 
@@ -358,8 +355,18 @@ SOLICITADO POR: ${usuarioActivo.nombre_completo} (${usuarioActivo.codigo_e})`;
 }
 
 // ============================================================================
-// 5. PANEL DE AVANCE PERSONAL Y RANKING DEL ADP
+// 5. PANEL DE AVANCE PERSONAL Y RANKING DEL ADP (METAS 85 / 45 Y 150 / 90 MIN)
 // ============================================================================
+function calcularMinutosHablados(listaGestiones) {
+    return listaGestiones.reduce((total, g) => {
+        if (g.hora_inicio && g.hora_finalizacion) {
+            const diff = (new Date(g.hora_finalizacion) - new Date(g.hora_inicio)) / 60000;
+            if (diff > 0.2 && diff <= 25) return total + diff;
+        }
+        return total + (g.gestion === 'NO CONTESTA' ? 0.8 : 2.3);
+    }, 0);
+}
+
 async function cargarDatosPersonalesADP() {
     const hoy = obtenerFechaLima();
 
@@ -374,8 +381,10 @@ async function cargarDatosPersonalesADP() {
     gestionesDelDiaLocal = todasHoy.filter(g => g.usuario_e === usuarioActivo.codigo_e);
     const totalMio = gestionesDelDiaLocal.length;
     const confirmadosMios = gestionesDelDiaLocal.filter(g => g.gestion === 'CONFIRMO').length;
-    const meta = METAS_DIARIAS[usuarioActivo.modalidad] || 45;
-    const porcentaje = Math.round((totalMio / meta) * 100);
+    
+    const configMeta = METAS_DIARIAS[usuarioActivo.modalidad] || METAS_DIARIAS['Full Time'];
+    const porcentaje = Math.round((totalMio / configMeta.sots) * 100);
+    const minHablados = Math.round(calcularMinutosHablados(gestionesDelDiaLocal));
 
     let cadenciaTxt = "Sin registros";
     if (totalMio > 1) {
@@ -394,7 +403,8 @@ async function cargarDatosPersonalesADP() {
     const rankingOrdenado = Object.entries(conteoPorAsesor).sort((a, b) => b[1] - a[1]);
     const miPosicion = rankingOrdenado.findIndex(item => item[0] === usuarioActivo.codigo_e) + 1;
 
-    document.getElementById('adp-avance-hoy').innerText = `${totalMio} / ${meta} SOTs`;
+    document.getElementById('adp-avance-hoy').innerText = `${totalMio} / ${configMeta.sots} SOTs`;
+    document.getElementById('adp-tiempo-hablado').innerText = `${minHablados} / ${configMeta.minutosHablados} min`;
     document.getElementById('adp-porcentaje').innerText = `${porcentaje}% (${confirmadosMios} Confirm.)`;
     document.getElementById('adp-cadencia').innerText = cadenciaTxt;
     document.getElementById('adp-ranking').innerText = miPosicion > 0 ? `Puesto #${miPosicion} de ${rankingOrdenado.length}` : 'Sin ranking aún';
@@ -430,7 +440,7 @@ function exportarBlocTXT() {
 }
 
 // ============================================================================
-// 6. DASHBOARD GERENCIAL DEL ADMINISTRADOR
+// 6. DASHBOARD GERENCIAL DEL ADMINISTRADOR + GRÁFICAS + IMPORTADOR HISTÓRICO
 // ============================================================================
 function cambiarModoFiltroAdmin() {
     const modo = document.getElementById('admin-modo-filtro').value;
@@ -444,7 +454,7 @@ function calcularMesesAntiguedad(fechaIngresoStr) {
     const ingreso = new Date(fechaIngresoStr);
     const hoy = new Date();
     const meses = (hoy.getFullYear() - ingreso.getFullYear()) * 12 + (hoy.getMonth() - ingreso.getMonth());
-    return `${Math.max(0, meses)} meses`;
+    return `${Math.max(0, meses)} m`;
 }
 
 async function cargarDashboardSupervisor() {
@@ -456,33 +466,40 @@ async function cargarDashboardSupervisor() {
     const { data: asesores } = await queryAsesores;
 
     let queryGestiones = supabaseClient.from('gestiones_sot').select('*');
-    let multiplicadorDias = 1;
+    let diasActivos = 1;
 
     if (modo === 'dia') {
         const fecha = document.getElementById('admin-filtro-fecha').value;
         queryGestiones = queryGestiones.eq('fecha_gestion', fecha);
-    } else {
+    } else if (modo === 'mes') {
         const mes = document.getElementById('admin-filtro-mes').value;
         queryGestiones = queryGestiones.gte('fecha_gestion', `${mes}-01`).lte('fecha_gestion', `${mes}-31`);
-        multiplicadorDias = 22;
     }
 
     const { data: gestiones, error } = await queryGestiones;
     if (error) return console.error(error);
 
+    if (modo !== 'dia' && gestiones && gestiones.length > 0) {
+        const fechasUnicas = new Set(gestiones.map(g => g.fecha_gestion));
+        diasActivos = Math.max(1, fechasUnicas.size);
+    }
+
     const filasProcesadas = (asesores || []).map(adp => {
-        const susGestiones = gestiones
+        const susGestiones = (gestiones || [])
             .filter(g => g.usuario_e === adp.codigo_e)
             .sort((a, b) => new Date(a.hora_finalizacion) - new Date(b.hora_finalizacion));
 
         const total = susGestiones.length;
-        const meta = (METAS_DIARIAS[adp.modalidad] || 45) * multiplicadorDias;
-        const cumple = total >= meta;
+        const configMeta = METAS_DIARIAS[adp.modalidad] || METAS_DIARIAS['Full Time'];
+        const metaSots = configMeta.sots * diasActivos;
+        const metaMin = configMeta.minutosHablados * diasActivos;
+        const minHablados = Math.round(calcularMinutosHablados(susGestiones));
+        const cumple = total >= metaSots && minHablados >= metaMin;
 
         let cadenciaMin = null;
         if (total > 1) {
             const diffMin = (new Date(susGestiones[total - 1].hora_finalizacion) - new Date(susGestiones[0].hora_finalizacion)) / 60000;
-            cadenciaMin = (diffMin / (total - 1)).toFixed(1);
+            if (diffMin > 0) cadenciaMin = (diffMin / (total - 1)).toFixed(1);
         }
 
         const horas = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].map(h => susGestiones.filter(g => g.intervalo === h).length);
@@ -493,25 +510,30 @@ async function cargarDashboardSupervisor() {
         const rech = susGestiones.filter(g => g.gestion === 'RECHAZADO').length;
         const repro = susGestiones.filter(g => g.gestion === 'REPROGRAMADO').length;
 
-        return { adp, total, meta, cumple, cadenciaMin, horas, conf, noCont, rech, repro };
+        return { adp, total, metaSots, minHablados, metaMin, cumple, cadenciaMin, horas, conf, noCont, rech, repro };
     }).sort((a, b) => b.total - a.total);
 
     const totalMesa = filasProcesadas.reduce((acc, f) => acc + f.total, 0);
     const totalConf = filasProcesadas.reduce((acc, f) => acc + f.conf, 0);
-    const totalContactados = filasProcesadas.reduce((acc, f) => acc + (f.conf + f.rech + f.repro), 0);
+    const totalNoCont = filasProcesadas.reduce((acc, f) => acc + f.noCont, 0);
+    const totalRech = filasProcesadas.reduce((acc, f) => acc + f.rech, 0);
+    const totalRepro = filasProcesadas.reduce((acc, f) => acc + f.repro, 0);
+    const totalContactados = totalConf + totalRech + totalRepro;
+
     const pctConf = totalMesa > 0 ? Math.round((totalConf / totalMesa) * 100) : 0;
     const pctContactabilidad = totalMesa > 0 ? Math.round((totalContactados / totalMesa) * 100) : 0;
-
     const totalCumplen = filasProcesadas.filter(f => f.cumple).length;
-    const cadenciasValidas = filasProcesadas.filter(f => f.cadenciaMin !== null).map(f => parseFloat(f.cadenciaMin));
-    const promCadenciaMesa = cadenciasValidas.length > 0 
-        ? (cadenciasValidas.reduce((a, b) => a + b, 0) / cadenciasValidas.length).toFixed(1) + ' min'
-        : '-- min';
+
+    const promMinHablados = filasProcesadas.length > 0
+        ? Math.round(filasProcesadas.reduce((a, f) => a + f.minHablados, 0) / filasProcesadas.length)
+        : 0;
 
     document.getElementById('kpi-global-sots').innerText = totalMesa;
     document.getElementById('kpi-global-efectividad').innerText = `${pctConf}% / ${pctContactabilidad}%`;
     document.getElementById('kpi-global-cumplen').innerText = `${totalCumplen} / ${filasProcesadas.length}`;
-    document.getElementById('kpi-global-cadencia').innerText = promCadenciaMesa;
+    document.getElementById('kpi-global-cadencia').innerText = `${promMinHablados} min prom.`;
+
+    renderizarGraficasAdmin(filasProcesadas, { totalConf, totalNoCont, totalRech, totalRepro });
 
     const tbody = document.getElementById('tabla-admin-body');
     tbody.innerHTML = filasProcesadas.map((f, idx) => `
@@ -519,18 +541,140 @@ async function cargarDashboardSupervisor() {
             <td><strong>#${idx + 1}</strong></td>
             <td>${f.adp.nombre_completo}</td>
             <td>${calcularMesesAntiguedad(f.adp.fecha_ingreso)}</td>
-            <td>${f.adp.modalidad}</td>
+            <td>${f.adp.modalidad === 'Full Time' ? 'FT' : 'PT'}</td>
             <td>${f.adp.area}</td>
             ${f.horas.map(c => `<td>${c > 0 ? c : ''}</td>`).join('')}
             <td><strong>${f.conf}</strong></td>
             <td>${f.noCont}</td>
             <td>${f.rech}</td>
             <td>${f.repro}</td>
-            <td><strong>${f.total}</strong> / ${f.meta}</td>
+            <td><strong>${f.total}</strong> / ${f.metaSots}</td>
+            <td><strong>${f.minHablados}</strong> / ${f.metaMin}m</td>
             <td><span class="${f.cumple ? 'badge-ok' : 'badge-warn'}">${f.cumple ? 'CUMPLE' : 'BAJO META'}</span></td>
-            <td>${f.cadenciaMin ? `Cada ${f.cadenciaMin} min` : '-'}</td>
+            <td>${f.cadenciaMin ? `${f.cadenciaMin}m` : '-'}</td>
         </tr>
     `).join('');
+}
+
+function renderizarGraficasAdmin(filas, totalesGestion) {
+    if (typeof Chart === 'undefined') return;
+
+    const etiquetasHoras = ['07h','08h','09h','10h','11h','12h','13h','14h','15h','16h','17h','18h','19h','20h+'];
+    const sumaPorHora = etiquetasHoras.map((_, i) => filas.reduce((acc, f) => acc + f.horas[i], 0));
+
+    const ctxHoras = document.getElementById('grafico-horas').getContext('2d');
+    if (chartHorasInstance) chartHorasInstance.destroy();
+    chartHorasInstance = new Chart(ctxHoras, {
+        type: 'bar',
+        data: {
+            labels: etiquetasHoras,
+            datasets: [{
+                label: 'SOTs Gestionadas por Hora',
+                data: sumaPorHora,
+                backgroundColor: '#14532d',
+                borderColor: '#d97706',
+                borderWidth: 1,
+                borderRadius: 5
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { title: { display: true, text: '🎄 Producción por Franja Horaria (07:00 - 20:00+)' } }
+        }
+    });
+
+    const ctxGest = document.getElementById('grafico-gestiones').getContext('2d');
+    if (chartGestionesInstance) chartGestionesInstance.destroy();
+    chartGestionesInstance = new Chart(ctxGest, {
+        type: 'doughnut',
+        data: {
+            labels: ['CONFIRMO', 'NO CONTESTA', 'RECHAZADO', 'REPROGRAMADO'],
+            datasets: [{
+                data: [totalesGestion.totalConf, totalesGestion.totalNoCont, totalesGestion.totalRech, totalesGestion.totalRepro],
+                backgroundColor: ['#15803d', '#d97706', '#b91c1c', '#2563eb']
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { title: { display: true, text: '📊 Distribución de Resultados' } }
+        }
+    });
+}
+
+// IMPORTADOR MASIVO DESDE CSV DE EXCEL
+function abrirModalImportar() { document.getElementById('modal-importar').style.display = 'flex'; }
+function cerrarModalImportar() { document.getElementById('modal-importar').style.display = 'none'; }
+
+async function procesarCSVHistorico() {
+    const fileInput = document.getElementById('archivo-csv-historico');
+    const status = document.getElementById('estado-importacion');
+    if (!fileInput.files.length) return alert("Selecciona primero el archivo .csv exportado de tu Excel.");
+
+    status.innerText = "⏳ Leyendo archivo y validando usuarios...";
+    const text = await fileInput.files[0].text();
+    const sep = text.includes(';') ? ';' : ',';
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return status.innerText = "❌ El archivo está vacío.";
+
+    const headers = lines[0].split(sep).map(h => h.trim().toUpperCase().replace(/"/g, ''));
+    const { data: usuariosValidos } = await supabaseClient.from('usuarios').select('codigo_e');
+    const setUsuarios = new Set((usuariosValidos || []).map(u => u.codigo_e));
+
+    const registros = [];
+    for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(sep).map(c => c.trim().replace(/"/g, ''));
+        const row = {};
+        headers.forEach((h, idx) => row[h] = cols[idx] || '');
+
+        const usuarioE = (row['USUARIO'] || row['USUARIO_E'] || '').toUpperCase().trim();
+        const sot = row['SOT'] || '';
+        if (!usuarioE || !sot || !setUsuarios.has(usuarioE)) continue;
+
+        let gestion = (row['GESTION'] || 'CONFIRMO').toUpperCase().trim();
+        if (!['CONFIRMO', 'NO CONTESTA', 'RECHAZADO', 'REPROGRAMADO'].includes(gestion)) gestion = 'CONFIRMO';
+
+        let franja = (row['FRANJA'] || 'AM1').toUpperCase().trim();
+        if (!['AM0', 'AM1', 'AM2', 'PM1', 'PM2'].includes(franja)) franja = 'AM1';
+
+        const fechaRaw = row['FECHA DE GESTION'] || row['FECHA_GESTION'] || obtenerFechaLima();
+        const fechaNorm = fechaRaw.includes('/') ? fechaRaw.split('/').reverse().join('-') : fechaRaw;
+        const intervalo = parseInt(row['INTERVALO'] || '10', 10) || 10;
+
+        registros.push({
+            usuario_e: usuarioE,
+            sot: sot,
+            fecha_desea_cliente: fechaNorm,
+            franja: franja,
+            fecha_gestion: fechaNorm,
+            intervalo: intervalo,
+            gestion: gestion,
+            submotivo: row['SUBMOTIVO'] || 'Importado de Excel histórico',
+            departamento: (row['DEPARTAMENTO'] || 'LIMA').toUpperCase(),
+            ya_tiene_gestion: (row['¿YA TIENE GESTION?'] || 'NO').toUpperCase() === 'SI' ? 'SI' : 'NO',
+            sot_gestionada_manual: row['SOT GESTIONADA MANUAL'] || 'PROGRAMACIONES D+1',
+            id_llamada: row['ID DE LLAMADA'] || 'HISTORICO'
+        });
+    }
+
+    if (registros.length === 0) {
+        status.innerText = "⚠️ No se encontraron filas con Usuarios E válidos en el padrón.";
+        return;
+    }
+
+    status.innerText = `⏳ Subiendo ${registros.length} gestiones históricas a Supabase...`;
+    for (let i = 0; i < registros.length; i += 200) {
+        const lote = registros.slice(i, i + 200);
+        const { error } = await supabaseClient.from('gestiones_sot').insert(lote);
+        if (error) {
+            status.innerText = "❌ Error al subir lote: " + error.message;
+            return;
+        }
+    }
+
+    status.innerText = `✅ ¡Éxito! Se cargaron ${registros.length} registros históricos.`;
+    cargarDashboardSupervisor();
 }
 
 function exportarReporteAdminCSV() {
