@@ -3,24 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mesa Multiskill HITSS - Control Operativo y Plantillas</title>
+    <title>Mesa Multiskill HITSS - Control Operativo Navidad</title>
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
-    <!-- =====================================================================
-         1. PANTALLA DE AUTENTICACIÓN INTELIGENTE (LOGIN / ACTIVACIÓN / REGISTRO)
-         ===================================================================== -->
+    <!-- 1. PANTALLA DE AUTENTICACIÓN -->
     <div id="pantalla-auth" class="auth-wrapper">
         <div class="auth-card">
             <div class="auth-header">
-                <span class="badge-corp">GLOBAL HITSS PERÚ • MESA MULTISKILL</span>
+                <span class="badge-corp">🎄 GLOBAL HITSS PERÚ • MESA MULTISKILL</span>
                 <h2>Control Operativo y Plantillas</h2>
                 <p>Ingresa con tu Usuario E asignado (Ej: E760644)</p>
             </div>
 
-            <!-- PASO 1: VERIFICAR CÓDIGO E -->
             <div id="paso-codigo">
                 <div class="form-group">
                     <label for="input-codigo-e">Usuario E</label>
@@ -29,7 +27,6 @@
                 <button class="btn btn-primary btn-block" onclick="verificarCodigoE()">Continuar →</button>
             </div>
 
-            <!-- PASO 2A: USUARIO CON CONTRASEÑA EXISTENTE -->
             <div id="paso-login" style="display: none;">
                 <div class="user-detected-box">
                     <strong id="saludo-reconocido"></strong>
@@ -43,7 +40,6 @@
                 <button class="btn-link" onclick="reiniciarLogin()">← Cambiar Usuario E</button>
             </div>
 
-            <!-- PASO 2B: PRIMER INGRESO (USUARIO PRECARGADO EN LEYENDA SIN CLAVE) -->
             <div id="paso-activar" style="display: none;">
                 <div class="user-detected-box success">
                     <strong id="saludo-activar"></strong>
@@ -57,7 +53,6 @@
                 <button class="btn-link" onclick="reiniciarLogin()">← Cambiar Usuario E</button>
             </div>
 
-            <!-- PASO 2C: ASESOR NUEVO NO PRECARGADO -->
             <div id="paso-registro-nuevo" style="display: none;">
                 <div class="user-detected-box warning">
                     <strong>Usuario E no encontrado en padrón</strong>
@@ -71,8 +66,8 @@
                     <div class="form-group">
                         <label for="reg-modalidad">Modalidad</label>
                         <select id="reg-modalidad">
-                            <option value="Full Time">Full Time</option>
-                            <option value="Part Time">Part Time</option>
+                            <option value="Full Time">Full Time (Meta: 85)</option>
+                            <option value="Part Time">Part Time (Meta: 45)</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -96,9 +91,7 @@
         </div>
     </div>
 
-    <!-- =====================================================================
-         2. APLICACIÓN PRINCIPAL
-         ===================================================================== -->
+    <!-- 2. APLICACIÓN PRINCIPAL -->
     <div id="app-principal" style="display: none;">
         
         <header class="topbar">
@@ -113,16 +106,16 @@
             </div>
         </header>
 
-        <!-- =================================================================
-             VISTA A: OPERACIÓN DEL ASESOR (ADP)
-             ================================================================= -->
+        <!-- VISTA A: OPERACIÓN DEL ASESOR (ADP) -->
         <main id="vista-adp" style="display: none;">
-            
-            <!-- PANEL DE AVANCE PERSONAL Y RANKING EN TIEMPO REAL -->
             <section class="adp-kpi-banner">
                 <div class="kpi-pill">
-                    <span class="kpi-label">Mi Avance Hoy</span>
-                    <strong id="adp-avance-hoy">0 / 45 SOTs</strong>
+                    <span class="kpi-label">Mi Avance Hoy (SOTs)</span>
+                    <strong id="adp-avance-hoy">0 / 85 SOTs</strong>
+                </div>
+                <div class="kpi-pill">
+                    <span class="kpi-label">Tiempo Hablado Estimado</span>
+                    <strong id="adp-tiempo-hablado">0 / 150 min</strong>
                 </div>
                 <div class="kpi-pill">
                     <span class="kpi-label">Cumplimiento / Efectividad</span>
@@ -139,8 +132,6 @@
             </section>
 
             <div class="grid-3-cols">
-                
-                <!-- COLUMNA 1: EXTRACCIÓN TOA + HABILITAR FRANJA -->
                 <div class="col-stack">
                     <section class="card">
                         <div class="card-header">
@@ -202,7 +193,6 @@
                         </div>
                     </section>
 
-                    <!-- MÓDULO 4: HABILITAR FRANJA -->
                     <section class="card">
                         <div class="card-header">
                             <h3>4. Formato para Habilitar Franja</h3>
@@ -219,7 +209,6 @@
                     </section>
                 </div>
 
-                <!-- COLUMNA 2: GENERADOR DE PLANTILLAS -->
                 <section class="card">
                     <div class="card-header">
                         <h3>2. Registrar Gestión y Plantilla</h3>
@@ -295,7 +284,6 @@
                     </div>
                 </section>
 
-                <!-- COLUMNA 3: REGISTRO DIARIO (BLOC + RESPALDO NUBE) -->
                 <section class="card">
                     <div class="card-header flex-between">
                         <h3>3. Registro Diario</h3>
@@ -306,19 +294,16 @@
                     </div>
                     <button class="btn btn-dark btn-block" onclick="exportarBlocTXT()">📥 Exportar Bloc (.txt)</button>
                 </section>
-
             </div>
         </main>
 
-        <!-- =================================================================
-             VISTA B: DASHBOARD GERENCIAL DEL ADMINISTRADOR (SUPERVISOR)
-             ================================================================= -->
+        <!-- VISTA B: DASHBOARD GERENCIAL DEL ADMINISTRADOR -->
         <main id="vista-admin" style="display: none;">
             <section class="card">
                 <div class="admin-toolbar">
                     <div>
                         <h2>Panel Gerencial de Productividad y Contactabilidad</h2>
-                        <p class="muted-text">Matriz horaria (07:00 a 20:00+), efectividad y cadencia en tiempo real</p>
+                        <p class="muted-text">Metas: Full Time (85 SOTs / 150 min) • Part Time (45 SOTs / 90 min)</p>
                     </div>
                     <div class="admin-filters">
                         <select id="admin-filtro-area" onchange="cargarDashboardSupervisor()">
@@ -330,17 +315,18 @@
                             <option value="Repro. Automatica">Repro. Automatica</option>
                         </select>
                         <select id="admin-modo-filtro" onchange="cambiarModoFiltroAdmin()">
+                            <option value="todo" selected>Todo el Historial</option>
                             <option value="dia">Por Día Específico</option>
                             <option value="mes">Consolidado Mensual</option>
                         </select>
-                        <input type="date" id="admin-filtro-fecha" onchange="cargarDashboardSupervisor()">
+                        <input type="date" id="admin-filtro-fecha" style="display: none;" onchange="cargarDashboardSupervisor()">
                         <input type="month" id="admin-filtro-mes" style="display: none;" onchange="cargarDashboardSupervisor()">
+                        <button class="btn btn-gold" onclick="abrirModalImportar()">📤 Cargar Excel Histórico (.csv)</button>
                         <button class="btn btn-primary" onclick="cargarDashboardSupervisor()">🔄 Actualizar</button>
-                        <button class="btn btn-success" onclick="exportarReporteAdminCSV()">📊 Exportar Excel (.csv)</button>
+                        <button class="btn btn-success" onclick="exportarReporteAdminCSV()">📊 Exportar CSV</button>
                     </div>
                 </div>
 
-                <!-- TARJETAS KPI GLOBALES -->
                 <div class="admin-kpi-grid">
                     <div class="stat-box">
                         <span>Total SOTs Gestionadas</span>
@@ -355,24 +341,34 @@
                         <strong id="kpi-global-cumplen">0 / 0</strong>
                     </div>
                     <div class="stat-box">
-                        <span>Cadencia Promedio Mesa</span>
+                        <span>Tiempo Hablado Prom. / Cadencia</span>
                         <strong id="kpi-global-cadencia">-- min</strong>
                     </div>
                 </div>
 
-                <!-- MATRIZ DE INTERVALOS HORARIOS Y DESGLOSE DE GESTIÓN -->
+                <!-- GRÁFICAS EN TIEMPO REAL -->
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <canvas id="grafico-horas"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <canvas id="grafico-gestiones"></canvas>
+                    </div>
+                </div>
+
                 <div class="table-responsive">
                     <table class="matrix-table" id="tabla-reporte-admin">
                         <thead>
                             <tr>
                                 <th rowspan="2">#</th>
-                                <th rowspan="2">Asesor (NOMBRE2)</th>
-                                <th rowspan="2">Antigüedad</th>
-                                <th rowspan="2">Modalidad</th>
+                                <th rowspan="2">Asesor</th>
+                                <th rowspan="2">Antig.</th>
+                                <th rowspan="2">Mod.</th>
                                 <th rowspan="2">Área</th>
                                 <th colspan="14">Intervalo Horario (07:00 a 20:00+)</th>
                                 <th colspan="4">Desglose Gestión</th>
-                                <th rowspan="2">Total / Meta</th>
+                                <th rowspan="2">SOTs / Meta</th>
+                                <th rowspan="2">T. Hablado / Meta</th>
                                 <th rowspan="2">Estado KPI</th>
                                 <th rowspan="2">Cadencia</th>
                             </tr>
@@ -383,13 +379,28 @@
                             </tr>
                         </thead>
                         <tbody id="tabla-admin-body">
-                            <tr><td colspan="26" style="text-align:center;">Cargando datos de Supabase...</td></tr>
+                            <tr><td colspan="27" style="text-align:center;">Cargando datos...</td></tr>
                         </tbody>
                     </table>
                 </div>
             </section>
         </main>
+    </div>
 
+    <!-- MODAL IMPORTAR EXCEL HISTÓRICO -->
+    <div id="modal-importar" class="modal-backdrop" style="display: none;">
+        <div class="modal-box">
+            <h3 style="color: var(--pine-light); margin-bottom: 8px;">📤 Importar Datos Antiguos desde Excel</h3>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+                En tu Excel, abre la hoja <strong>Sheet1</strong> $\rightarrow$ <strong>Archivo $\rightarrow$ Guardar como $\rightarrow$ CSV (delimitado por comas) (*.csv)</strong> y súbelo aquí para poblar las gráficas y el historial.
+            </p>
+            <input type="file" id="archivo-csv-historico" accept=".csv" style="margin-bottom: 12px;">
+            <div id="estado-importacion" style="font-size: 12px; margin-bottom: 12px; font-weight: 600;"></div>
+            <div class="btn-row">
+                <button class="btn btn-success" onclick="procesarCSVHistorico()">Subir a Supabase</button>
+                <button class="btn btn-secondary" onclick="cerrarModalImportar()">Cerrar</button>
+            </div>
+        </div>
     </div>
 
     <div id="toast" class="toast"></div>
