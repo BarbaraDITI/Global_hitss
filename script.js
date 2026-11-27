@@ -219,6 +219,12 @@ function cerrarSesion() {
     location.reload();
 }
 
+
+
+
+
+
+
 // ============================================================================
 // 4. OPERACIÓN DEL ASESOR
 // ============================================================================
@@ -228,29 +234,25 @@ async function procesarCSVHistorico() {
     const status = document.getElementById('estado-importacion');
     if (!fileInput.files.length) return alert("Selecciona primero el archivo .csv exportado de tu Excel.");
 
-    status.innerText = "⏳ Analizando estructura del archivo CSV...";
-    const text = await fileInput.files[0].text();
+    status.innerText = "⏳ Leyendo archivo CSV (soporte tildes/Windows-1252)...";
+    const buffer = await fileInput.files[0].arrayBuffer();
+    let text = new TextDecoder('utf-8').decode(buffer);
+    if (text.includes('\uFFFD')) {
+        text = new TextDecoder('windows-1252').decode(buffer);
+    }
+
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     if (lines.length < 2) {
         status.innerText = "❌ El archivo está vacío.";
         return;
     }
 
-    // Detectar fila de encabezados (donde aparezca SOT)
-    let headerIdx = lines.findIndex(l => l.toUpperCase().includes('SOT'));
+    let headerIdx = lines.findIndex(l => l.toUpperCase().includes('SOT') && l.toUpperCase().includes('USUARIO'));
     if (headerIdx === -1) headerIdx = 0;
 
     const headerLine = lines[headerIdx];
     const sep = (headerLine.match(/;/g) || []).length >= (headerLine.match(/,/g) || []).length ? ';' : ',';
     const headers = headerLine.split(sep).map(h => h.trim().toUpperCase().replace(/^"|"$/g, '').replace(/\s+/g, ' '));
-
-    const colSot = headers.find(h => h === 'SOT' || h.includes('SOT'));
-    const colUsuario = headers.find(h => h === 'USUARIO' || h === 'USUARIO E' || h === 'USUARIO_E' || h.includes('CODIGO') || h.includes('ASESOR'));
-
-    if (!colSot) {
-        status.innerText = `❌ No se halló columna SOT. Columnas leídas: ${headers.slice(0, 8).join(' | ')}`;
-        return;
-    }
 
     const { data: usuariosValidos, error: errUsers } = await supabaseClient.from('usuarios').select('codigo_e');
     if (errUsers) {
@@ -266,21 +268,37 @@ async function procesarCSVHistorico() {
     const registros = [];
     const usuariosNuevosAuto = new Map();
 
+    const convertirFechaISO = (valor, fallback) => {
+        if (!valor) return fallback;
+        const soloFecha = valor.trim().split(' ')[0];
+        if (soloFecha.includes('/')) {
+            const p = soloFecha.split('/');
+            if (p.length === 3) return `${p[2].padStart(4, '20')}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+        }
+        if (soloFecha.includes('-')) return soloFecha;
+        return fallback;
+    };
+
+    const convertirTimestampISO = (valor, fechaBase) => {
+        if (!valor || !valor.includes(':')) return `${fechaBase}T10:00:00-05:00`;
+        const partes = valor.trim().split(' ');
+        const fIso = convertirFechaISO(partes[0], fechaBase);
+        const horaPartes = (partes[1] || '10:00').split(':');
+        const hh = horaPartes[0].padStart(2, '0');
+        const mm = (horaPartes[1] || '00').padStart(2, '0');
+        const ss = (horaPartes[2] || '00').padStart(2, '0');
+        return `${fIso}T${hh}:${mm}:${ss}-05:00`;
+    };
+
     for (let i = headerIdx + 1; i < lines.length; i++) {
         const cols = lines[i].split(sep).map(c => c.trim().replace(/^"|"$/g, ''));
         const row = {};
         headers.forEach((h, idx) => row[h] = cols[idx] || '');
 
-        const sot = (row[colSot] || '').replace(/[^0-9]/g, '');
+        const sot = (row['SOT'] || '').replace(/[^0-9]/g, '');
         if (!sot) continue;
 
-        // Buscar código E en la columna usuario o en cualquier celda de la fila (ej: E760644)
-        let rawUser = colUsuario ? (row[colUsuario] || '').toUpperCase().trim() : '';
-        if (!rawUser || !/^E-?\d{5,7}$/.test(rawUser)) {
-            const matchEnFila = lines[i].toUpperCase().match(/\bE-?\d{5,7}\b/);
-            if (matchEnFila) rawUser = matchEnFila[0];
-        }
-
+        const rawUser = (row['USUARIO E'] || row['USUARIO'] || '').toUpperCase().trim();
         const userNorm = rawUser.replace(/[^A-Z0-9]/g, '');
         if (!userNorm) continue;
 
@@ -288,17 +306,20 @@ async function procesarCSVHistorico() {
         if (!codigoExactoBD) {
             codigoExactoBD = userNorm;
             mapaUsuarios.set(userNorm, codigoExactoBD);
+            const modRaw = (row['MODALIDAD'] || '').toLowerCase();
+            const modalidad = modRaw.includes('part') ? 'Part Time' : 'Full Time';
             usuariosNuevosAuto.set(codigoExactoBD, {
                 codigo_e: codigoExactoBD,
-                nombre_completo: row['NOMBRE'] || row['ASESOR'] || `ASESOR ${codigoExactoBD}`,
-                modalidad: 'Full Time',
-                area: 'Programador',
+                nombre_completo: (row['NOMBRE2'] || row['NOMBRE'] || `ASESOR ${codigoExactoBD}`).trim(),
+                fecha_ingreso: convertirFechaISO(row['FECHA DE INGRESO'], obtenerFechaLima()),
+                modalidad: modalidad,
+                area: (row['AREA'] || 'Programador').trim(),
                 rol: 'ADP',
                 activo: true
             });
         }
 
-        let gestion = (row['GESTION'] || row['GESTIÓN'] || 'CONFIRMO').toUpperCase().trim();
+        let gestion = (row['GESTION'] || 'CONFIRMO').toUpperCase().trim();
         if (!['CONFIRMO', 'NO CONTESTA', 'RECHAZADO', 'REPROGRAMADO'].includes(gestion)) {
             if (gestion.includes('NO CONT')) gestion = 'NO CONTESTA';
             else if (gestion.includes('RECH')) gestion = 'RECHAZADO';
@@ -309,41 +330,38 @@ async function procesarCSVHistorico() {
         let franja = (row['FRANJA'] || 'AM1').toUpperCase().trim();
         if (!['AM0', 'AM1', 'AM2', 'PM1', 'PM2'].includes(franja)) franja = 'AM1';
 
-        const fechaRaw = (row['FECHA DE GESTION'] || row['FECHA_GESTION'] || row['HORA DE FINALIZACIÓN'] || row['FECHA'] || obtenerFechaLima()).split(' ')[0];
-        let fechaNorm = obtenerFechaLima();
-        if (fechaRaw.includes('/')) {
-            const p = fechaRaw.split('/');
-            if (p.length === 3) fechaNorm = `${p[2].padStart(4, '20')}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
-        } else if (fechaRaw.includes('-')) {
-            fechaNorm = fechaRaw;
-        }
-
+        const fechaGestion = convertirFechaISO(row['FECHA GESTION'] || row['FECHA DE GESTION'], obtenerFechaLima());
+        const fechaDesea = convertirFechaISO(row['FECHA QUE DESEA CLIENTE'], fechaGestion);
+        const horaInicio = convertirTimestampISO(row['HORA DE INICIO'], fechaGestion);
+        const horaFin = convertirTimestampISO(row['HORA DE FINALIZACIÓN'] || row['HORA DE FINALIZACION'], fechaGestion);
         const intervalo = parseInt(row['INTERVALO'] || '10', 10) || 10;
+        const depto = (row['DEPARTAMENTO1'] || row['DEPARTAMENTO'] || 'LIMA').toUpperCase().trim() || 'LIMA';
 
         registros.push({
             usuario_e: codigoExactoBD,
             sot: sot,
-            fecha_desea_cliente: fechaNorm,
+            fecha_desea_cliente: fechaDesea,
             franja: franja,
-            fecha_gestion: fechaNorm,
+            hora_inicio: horaInicio,
+            hora_finalizacion: horaFin,
+            fecha_gestion: fechaGestion,
             intervalo: Math.min(23, Math.max(0, intervalo)),
             gestion: gestion,
-            submotivo: row['SUBMOTIVO'] || 'Importado de Excel histórico',
-            departamento: (row['DEPARTAMENTO'] || 'LIMA').toUpperCase(),
-            ya_tiene_gestion: (row['¿YA TIENE GESTION?'] || row['YA TIENE GESTION'] || 'NO').toUpperCase() === 'SI' ? 'SI' : 'NO',
-            sot_gestionada_manual: row['SOT GESTIONADA MANUAL'] || 'PROGRAMACIONES D+1',
-            id_llamada: row['ID DE LLAMADA'] || row['ID LLAMADA'] || 'HISTORICO'
+            submotivo: row['SUBMOTIVO'] || 'Histórico Excel',
+            departamento: depto,
+            ya_tiene_gestion: (row['¿YA TIENE GESTION?'] || 'NO').toUpperCase().trim() === 'SI' ? 'SI' : 'NO',
+            sot_gestionada_manual: (row['SOT GESTIONADA MANUAL'] || 'PROGRAMACIONES D+1').trim(),
+            id_llamada: (row['ID'] || 'HISTORICO').trim()
         });
     }
 
     if (registros.length === 0) {
-        status.innerText = `⚠️ No se encontraron filas con SOT y código E (ej: E760644). Encabezados: ${headers.slice(0, 6).join(' | ')}`;
+        status.innerText = `⚠️ No se leyeron filas válidas. Encabezados detectados: ${headers.slice(0, 8).join(' | ')}`;
         return;
     }
 
-    // Registrar automáticamente asesores del CSV que no estaban en la tabla usuarios
     if (usuariosNuevosAuto.size > 0) {
-        status.innerText = `⏳ Registrando ${usuariosNuevosAuto.size} asesores nuevos del histórico...`;
+        status.innerText = `⏳ Registrando ${usuariosNuevosAuto.size} asesores adicionales del histórico...`;
         const { error: errNewUsers } = await supabaseClient.from('usuarios').insert(Array.from(usuariosNuevosAuto.values()));
         if (errNewUsers) {
             status.innerText = "❌ Error creando asesores nuevos: " + errNewUsers.message;
@@ -352,8 +370,8 @@ async function procesarCSVHistorico() {
     }
 
     status.innerText = `⏳ Subiendo ${registros.length} gestiones históricas a Supabase...`;
-    for (let i = 0; i < registros.length; i += 200) {
-        const lote = registros.slice(i, i + 200);
+    for (let i = 0; i < registros.length; i += 250) {
+        const lote = registros.slice(i, i + 250);
         const { error } = await supabaseClient.from('gestiones_sot').insert(lote);
         if (error) {
             status.innerText = "❌ Error al subir lote: " + error.message;
@@ -364,6 +382,11 @@ async function procesarCSVHistorico() {
     status.innerText = `✅ ¡Éxito! Se cargaron ${registros.length} registros históricos.`;
     cargarDashboardSupervisor();
 }
+
+
+
+
+
 
 async function generarYGuardarPlantilla() {
     const sot = document.getElementById('campo-sot').value.trim();
