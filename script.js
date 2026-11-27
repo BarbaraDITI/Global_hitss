@@ -317,6 +317,9 @@ function cerrarSesion() {
 // ============================================================================
 // 4. PROCESADOR DE TEXTO TOA (TU EXTRACTOR ORIGINAL COMPLETO)
 // ============================================================================
+// ============================================================================
+// EXTRACTOR TOA MEJORADO (DETECTA DIRECCIÓN EN FORMATO TABULAR O MULTILÍNEA)
+// ============================================================================
 function procesarTextoTOA() {
     const text = document.getElementById('rawInput').value;
 
@@ -328,10 +331,10 @@ function procesarTextoTOA() {
     horaInicioActividad = new Date().toISOString();
 
     const sotMatch = text.match(/(?:SOT|sot|Nro SOT|N° SOT|Orden)\s*[:\t\r\n]*\s*(\d+)/i) || text.match(/\b\d{8,9}\b/);
-    const telMatch = text.match(/(?:Telefono|Telefono\s*Cliente|Contacto|Movil|Celular|Telefonos)\s*[:\t\r\n]*\s*(\d{7,9})/i) || text.match(/\b9\d{8}\b/);
+    const telMatch = text.match(/(?:Telefono|Teléfono|Telefono\s*Cliente|Contacto|Movil|Móvil|Celular|Telefonos)\s*[:\t\r\n]*\s*(\d{7,9})/i) || text.match(/\b9\d{8}\b/);
 
     let cliente = "S/N";
-    const clienteMatch = text.match(/Nombre\s*[:\t\r\n]+\s*([\s\S]*?)(?=\s*Tipo\s*de\s*Documento)/i);
+    const clienteMatch = text.match(/Nombre\s*[:\t\r\n]+\s*([\s\S]*?)(?=\s*(?:Tipo\s*de\s*Documento|Documento|Telefono|Teléfono|Direccion|Dirección))/i);
     if (clienteMatch && clienteMatch[1]) {
         cliente = clienteMatch[1].replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
     } else {
@@ -340,7 +343,6 @@ function procesarTextoTOA() {
             cliente = clienteFallback[1].trim();
         }
     }
-
     if (/^(CLIENTE|NOMBRE|ABONADO|S\/N)$/i.test(cliente)) cliente = "S/N";
 
     let contrata = "SAVAL";
@@ -355,7 +357,7 @@ function procesarTextoTOA() {
     }
 
     // Fecha y Franja
-    const fechaMatch = text.match(/(?:Fecha\s*de\s*Programacion|Fecha)\s*[:\t\r\n]*\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i) || text.match(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/);
+    const fechaMatch = text.match(/(?:Fecha\s*de\s*Programacion|Fecha\s*de\s*Programación|Fecha)\s*[:\t\r\n]*\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i) || text.match(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/);
     if (fechaMatch && fechaMatch[1]) {
         const partes = fechaMatch[1].split('/');
         if (partes.length === 3) {
@@ -371,23 +373,29 @@ function procesarTextoTOA() {
     const franjaMatch = text.match(/\b(AM0|AM1|AM2|PM1|PM2|PM3)\b/i);
     franjaToaPorDefecto = franjaMatch ? franjaMatch[1].toUpperCase() : "AM1";
 
-    // Variables secundarias
-    const planoMatch = text.match(/(?:Plano)\s*[:\t\r\n]*\s*([A-Z0-9-]+)/i);
-    if (planoMatch) planoExtraido = planoMatch[1].trim();
+    // Variables secundarias (Extracción reforzada para Fuera de TOA)
+    const planoMatch = text.match(/(?:Plano|Nodo)\s*[:\t\r\n]*\s*([A-Z0-9-]+)/i);
+    planoExtraido = planoMatch ? planoMatch[1].trim() : "S/N";
 
-    const subTipoMatch = text.match(/(?:Sub\s*Tipo\s*de\s*Orden|Subtipo)\s*[:\t\r\n]*\s*([^\r\n]+)/i);
-    if (subTipoMatch) subTipoExtraido = subTipoMatch[1].trim();
+    const subTipoMatch = text.match(/(?:Sub\s*Tipo\s*de\s*Orden|Sub\s*Tipo|Subtipo)\s*[:\t\r\n]*\s*([^\r\n\t]+)/i);
+    subTipoExtraido = subTipoMatch ? subTipoMatch[1].trim() : "S/N";
 
-    const codClienteMatch = text.match(/(?:Código\s*de\s*Cliente|Cod\s*Cliente)\s*[:\t\r\n]*\s*(\d+)/i);
-    if (codClienteMatch) codClienteExtraido = codClienteMatch[1].trim();
+    const codClienteMatch = text.match(/(?:Código\s*de\s*Cliente|Codigo\s*de\s*Cliente|Cod\s*Cliente|Customer\s*ID)\s*[:\t\r\n]*\s*(\d+)/i);
+    codClienteExtraido = codClienteMatch ? codClienteMatch[1].trim() : "S/N";
 
-    const dirMatch = text.match(/(?:Direccion|Dirección)\s*[:\t\r\n]*\s*([^\r\n]+)/i);
-    if (dirMatch) direccionExtraida = dirMatch[1].trim();
+    // Dirección: soporta salto de línea después de "Dirección:" o tabulación de TOA hasta el siguiente campo
+    const dirMatch = text.match(/(?:Direcci[oó]n(?:\s*de\s*Instalaci[oó]n)?|Domicilio)\s*[:\t\r\n]+\s*([\s\S]*?)(?=\s*(?:Distrito|Provincia|Departamento|Referencia|Plano|Coordenadas|Latitud|Longitud|Zona|Teléfono|Telefono|Estado|$))/i);
+    if (dirMatch && dirMatch[1] && dirMatch[1].trim().length > 3) {
+        direccionExtraida = dirMatch[1].replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+    } else {
+        // Respaldo: detectar patrón típico de vía en Perú (AV., JR., CALLE, MZ, URB, PSJE, ASOC)
+        const viaMatch = text.match(/\b((?:AV\.?|AVENIDA|JR\.?|JIRON|JIRÓN|CALLE|CL\.?|MZ\.?|MANZANA|URB\.?|URBANIZACION|PSJE\.?|PASAJE|ASOC\.?|AA\.?HH\.?|SECTOR)\s+[^\r\n]{5,90})/i);
+        direccionExtraida = viaMatch ? viaMatch[1].trim() : "S/N";
+    }
 
-    const distMatch = text.match(/(?:Distrito)\s*[:\t\r\n]*\s*([^\r\n]+)/i);
-    if (distMatch) distritoExtraido = distMatch[1].trim();
+    const distMatch = text.match(/(?:Distrito)\s*[:\t\r\n]+\s*([^\r\n\t]+)/i);
+    distritoExtraido = distMatch ? distMatch[1].trim() : "S/N";
 
-    // Detectar Departamento en el texto
     const selectDepto = document.getElementById('pvDepartamento');
     if (selectDepto) {
         const textoUpper = text.toUpperCase();
@@ -399,27 +407,182 @@ function procesarTextoTOA() {
         }
     }
 
-    const sot = sotMatch ? (sotMatch[1] || sotMatch[0]) : "";
-    const telefono = telMatch ? (telMatch[1] || telMatch[0]) : "";
-
-    document.getElementById('pvSOT').value = sot;
-    document.getElementById('pvTel').value = telefono;
+    document.getElementById('pvSOT').value = sotMatch ? (sotMatch[1] || sotMatch[0]) : "";
+    document.getElementById('pvTel').value = telMatch ? (telMatch[1] || telMatch[0]) : "";
     document.getElementById('pvCliente').value = cliente;
     document.getElementById('pvContrata').value = contrata;
 
     renderizarCamposDinamicos();
     actualizarFormatoHabilitarFranja();
-    mostrarToast("✅ Datos de TOA procesados correctamente");
+    mostrarToast("✅ Datos de TOA procesados");
 }
 
-function obtenerClienteData() {
-    return {
-        sot: document.getElementById('pvSOT').value.trim() || "S/N",
-        telefono: document.getElementById('pvTel').value.trim() || "S/N",
-        cliente: document.getElementById('pvCliente').value.trim() || "S/N",
-        contrata: document.getElementById('pvContrata').value.trim() || "SAVAL",
-        departamento: document.getElementById('pvDepartamento').value || "LIMA"
-    };
+// ============================================================================
+// ACCIÓN 1: SOLO GENERAR PLANTILLA
+// ============================================================================
+function generarPlantillaSolo() {
+    const clienteData = obtenerClienteData();
+    if (!clienteData.sot || clienteData.sot === 'S/N') {
+        return mostrarToast("⚠️ Ingresa o extrae el número de SOT primero");
+    }
+
+    const subcat = document.getElementById('selectSubcategoria').value;
+    const idLlamada = v('inputIDLlamada') || "S/N";
+    const fechaVisita = obtenerFechaYFranjaFormateada();
+    const obs = v('inputObs') || "SIN OBSERVACIONES";
+    const motivoDetalle = v('inputMotivoDetalle') || "# Cambios en las fechas y franjas solicitadas";
+    const personaContesta = v('inputPersonaContesta') || clienteData.cliente;
+    const submotivo = v('selectSubmotivoRechazo') || v('selectSubmotivo') || motivoDetalle;
+    const realizadorCompleto = `${usuarioActivo.nombre_completo.toUpperCase()} - ADP MULTISKILL HITSS`;
+
+    let p = "";
+
+    switch (subcat) {
+        case 'FTOA_GENERAL':
+            const ftoa = `*FUERA DE TOA*\n📌 SOT: ${clienteData.sot}\n⚙️ SUB TIPO: ${subTipoExtraido}\n🏡 DIRECCIÓN: ${direccionExtraida}\n📍 DISTRITO: ${distritoExtraido}\n🛠️ SERVICIO: FTTH\n🔑 PLANO: ${planoExtraido}\n👤 CLIENTE: ${clienteData.cliente}\n🔢 COD CLIENTE: ${codClienteExtraido}\n📱 CELULAR DEL CLIENTE: ${clienteData.telefono}\n📅 FECHA Y FRANJA: ${fechaVisita}\n✍️ REALIZADO POR: ${realizadorCompleto}`;
+            const repro = `MESA MULTISKILL HITSS\nREPROGRAMADO EN CAMPO / REAGENDADO POR CLIENTE\nMOTIVO DE REPROGRAMACIÓN: CLIENTE ${motivoDetalle}\nCLIENTE: ${clienteData.cliente}\nTELÉFONO: ${clienteData.telefono}\nNUEVA FECHA Y FRANJA DE VISITA: ${fechaVisita}\nOBSERVACIÓN: ${obs}\nCONTRATA: ${clienteData.contrata}\nREALIZADO POR: ${usuarioActivo.nombre_completo.toUpperCase()}\nCÓD LLAMADA: ${idLlamada}`;
+            p = `${ftoa}\n\n===================================\n\n${repro}`;
+            break;
+        case 'CONF_LLAMADA':
+            p = `MESA MULTISKILL HITSS - CONFIRMA VISITA\nSOT: ${clienteData.sot}\nDÍA Y FRANJA: ${fechaVisita}\nCLIENTE: ${clienteData.cliente}\nNUMERO: ${clienteData.telefono}\nCONTRATA: ${clienteData.contrata}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${usuarioActivo.nombre_completo.toUpperCase()}`;
+            break;
+        case 'CONF_ADELANTO':
+            p = `MESA MULTISKILL HITSS - ADELANTA VISITA\nSOT: ${clienteData.sot}\nDÍA Y FRANJA: ${fechaVisita}\nCLIENTE: ${clienteData.cliente}\nNUMERO: ${clienteData.telefono}\nCONTRATA: ${clienteData.contrata}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'CONF_MANTIENE':
+            p = `MESA MULTISKILL HITSS - MANTIENE FECHA DE VISITA\nSOT: ${clienteData.sot}\nDÍA Y FRANJA: ${fechaVisita}\nCLIENTE: ${clienteData.cliente}\nNUMERO: ${clienteData.telefono}\nCONTRATA: ${clienteData.contrata}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${usuarioActivo.nombre_completo.toUpperCase()}`;
+            break;
+        case 'CICLO_CONTACTO':
+            p = `MESA MULTISKILL HITSS - CICLO DE LLAMADAS\nCICLO DE LLAMADA NRO: ${v('inputCiclo') || '1'}\nCANTIDAD DE LLAMADAS: ${v('inputCantLlamadas') || '4'}\nNUMERO: ${clienteData.telefono}\nMOTIVO: FALTA DE CONTACTO\nSUB-MOTIVO: ${v('selectSubmotivo')}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'REPRO_CLIENTE':
+            p = `MESA MULTISKILL HITSS\nREPROGRAMADO EN MESA / REAGENDADO POR CLIENTE\nMOTIVO DE REPROGRAMACIÓN: CLIENTE ${motivoDetalle}\nCLIENTE: ${clienteData.cliente}\nTELÉFONO: ${clienteData.telefono}\nNUEVA FECHA Y FRANJA DE VISITA: ${fechaVisita}\nOBSERVACIÓN: ${obs}\nCONTRATA: ${clienteData.contrata}\nREALIZADO POR: ${realizadorCompleto}\nCÓD LLAMADA: ${idLlamada}`;
+            break;
+        case 'REPRO_CLARO':
+            p = `MESA MULTISKILL HITSS\nREPROGRAMADO EN MESA / REAGENDADO POR CLARO\nMOTIVO DE REPROGRAMACIÓN: CLARO ${motivoDetalle}\nCLIENTE: ${clienteData.cliente}\nTELÉFONO: ${clienteData.telefono}\nNUEVA FECHA Y FRANJA DE VISITA: ${fechaVisita}\nOBSERVACIÓN: ${obs}\nCONTRATA: ${clienteData.contrata}\nREALIZADO POR: ${realizadorCompleto}\nCÓD LLAMADA: ${idLlamada}`;
+            break;
+        case 'RECH_NO_DESEA':
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZO EN MESA\nPERSONA QUE CONTESTA: ${personaContesta}\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: CLIENTE NO DESEA EL SERVICIO - MESA\nSUBMOTIVO DE RECHAZO: ${submotivo}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_DUPLICIDAD':
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZADO EN MESA\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: RECHAZADO POR DUPLICIDAD\nSUBMOTIVO DE RECHAZO: ${submotivo}\nSE PROCEDE AL RECHAZO DE LA SOLICITUD POR DUPLICIDAD DE SOT, SE ATENDIÓ CON LA SOT: ${v('inputSotDuplicada') || 'S/N'}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_FACILIDADES':
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZADO EN MESA\nPERSONA QUE CONTESTA: ${personaContesta}\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: FACILIDADES TÉCNICAS DEL CLIENTE\nSUBMOTIVO DE RECHAZO: ${submotivo}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_CONTACTO':
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZO EN MESA\nPERSONA QUE CONTESTA: ${personaContesta}\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: FALTA DE CONTACTO\nSUBMOTIVO DE RECHAZO: ${submotivo}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_DIRECCION':
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZADO EN MESA\nPERSONA QUE CONTESTA: ${personaContesta}\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: MAL INGRESO DE DIRECCIÓN\nDIRECCIÓN CORRECTA: ${v('inputDireccionCorrecta') || 'S/N'}\nSUBMOTIVO DE RECHAZO: ${submotivo}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_OFERTA':
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZADO EN MESA\nPERSONA QUE CONTESTA: ${personaContesta}\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: MALA OFERTA\nSUBMOTIVO DE RECHAZO: ${submotivo}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_SISTEMA':
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZADO EN MESA\nMOTIVO DEL RECHAZO: SOT CON ERRORES EN EL SISTEMA\nSUBMOTIVO DE RECHAZO: ${submotivo}\nSE PROCEDE AL RECHAZO DE LA SOLICITUD POR TENER ERRORES DE SISTEMAS\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_FRAUDE':
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZADO EN MESA\nPERSONA QUE CONTESTA: ${personaContesta}\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: POSIBLE FRAUDE\nSUBMOTIVO DE RECHAZO: Cliente ya tiene un servicio activo en la misma dirección\nCUSTOMER ID: ${v('inputCustomerID') || 'S/N'}\nAUTORIZADO POR: ${v('inputAutorizadoPor') || 'S/N'}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+    }
+
+    document.getElementById('outputPlantilla').value = p;
+    actualizarFormatoHabilitarFranja();
+    mostrarToast("✅ Plantilla generada");
+}
+
+// ============================================================================
+// ACCIÓN 3: SOLO GUARDAR EN BASE DE DATOS Y BLOC DIARIO
+// ============================================================================
+async function guardarGestionEnBD() {
+    const clienteData = obtenerClienteData();
+    if (!clienteData.sot || clienteData.sot === 'S/N') {
+        return mostrarToast("⚠️ Ingresa o extrae el número de SOT primero");
+    }
+
+    const cat = document.getElementById('selectCategoria').value;
+    const subcat = document.getElementById('selectSubcategoria').value;
+    const colaManual = document.getElementById('cola-manual').value;
+    const idLlamada = v('inputIDLlamada') || "S/N";
+    const submotivo = v('selectSubmotivoRechazo') || v('selectSubmotivo') || v('inputMotivoDetalle') || cat;
+
+    let gestionBD = "CONFIRMO";
+    if (subcat === 'CICLO_CONTACTO') gestionBD = "NO CONTESTA";
+    else if (subcat.startsWith('REPRO_') || subcat === 'FTOA_GENERAL') gestionBD = "REPROGRAMADO";
+    else if (subcat.startsWith('RECH_')) gestionBD = "RECHAZADO";
+
+    const yaTieneGestionHoy = gestionesDelDiaLocal.some(g => g.sot === clienteData.sot) ? 'SI' : 'NO';
+    if (yaTieneGestionHoy === 'SI') {
+        if (!confirm(`⚠️ La SOT ${clienteData.sot} ya registra una gestión previa hoy (se marcará ¿YA TIENE GESTION? = SI). ¿Continuar?`)) return;
+    }
+
+    const fechaDeseaCliente = v('inputFecha') || fechaToaPorDefecto || obtenerFechaLima();
+    const franjaRaw = v('selectFranja') || franjaToaPorDefecto || 'AM1';
+    const franjaBD = ['AM0', 'AM1', 'AM2', 'PM1', 'PM2'].includes(franjaRaw) ? franjaRaw : 'AM1';
+    const ahora = new Date();
+
+    const { error } = await supabaseClient.from('gestiones_sot').insert([{
+        usuario_e: usuarioActivo.codigo_e,
+        sot: clienteData.sot,
+        fecha_desea_cliente: fechaDeseaCliente,
+        franja: franjaBD,
+        hora_inicio: horaInicioActividad,
+        hora_finalizacion: ahora.toISOString(),
+        fecha_gestion: obtenerFechaLima(),
+        intervalo: obtenerHoraLima(),
+        gestion: gestionBD,
+        submotivo: submotivo,
+        departamento: clienteData.departamento,
+        ya_tiene_gestion: yaTieneGestionHoy,
+        sot_gestionada_manual: colaManual,
+        id_llamada: idLlamada,
+        cliente_nombre: clienteData.cliente,
+        telefono_cliente: clienteData.telefono,
+        contrata: clienteData.contrata,
+        enviado_forms: true
+    }]);
+
+    horaInicioActividad = new Date().toISOString();
+
+    if (error) {
+        mostrarToast("❌ Error al guardar en BD: " + error.message);
+    } else {
+        mostrarToast("💾 Gestión guardada en BD y Bloc Diario");
+        cargarDatosPersonalesADP();
+    }
+}
+
+// ============================================================================
+// ACCIÓN 4: ABRIR MICROSOFT FORMS (CON AUTOCOMPLETADO SI SE CONFIGURA EL LINK)
+// ============================================================================
+function abrirFormsAutocompletado() {
+    const clienteData = obtenerClienteData();
+    const subcat = document.getElementById('selectSubcategoria').value;
+    const colaManual = document.getElementById('cola-manual').value;
+    const fechaDesea = v('inputFecha') || fechaToaPorDefecto || obtenerFechaLima();
+    const franja = v('selectFranja') || franjaToaPorDefecto || 'AM1';
+    const yaTiene = gestionesDelDiaLocal.some(g => g.sot === clienteData.sot) ? 'SI' : 'NO';
+
+    let gestionBD = "CONFIRMO";
+    if (subcat === 'CICLO_CONTACTO') gestionBD = "NO CONTESTA";
+    else if (subcat.startsWith('REPRO_') || subcat === 'FTOA_GENERAL') gestionBD = "REPROGRAMADO";
+    else if (subcat.startsWith('RECH_')) gestionBD = "RECHAZADO";
+
+    if (URL_FORMS_PRELLENADA && URL_FORMS_PRELLENADA.includes('id=')) {
+        const urlFinal = URL_FORMS_PRELLENADA
+            .replace('E760644', encodeURIComponent(usuarioActivo.codigo_e))
+            .replace('92201849', encodeURIComponent(clienteData.sot))
+            .replace('2026-11-02', encodeURIComponent(fechaDesea))
+            .replace('AM1', encodeURIComponent(franja))
+            .replace('CONFIRMO', encodeURIComponent(gestionBD))
+            .replace('LIMA', encodeURIComponent(clienteData.departamento))
+            .replace('NO', encodeURIComponent(yaTiene))
+            .replace('MIGRACIONES', encodeURIComponent(colaManual));
+        window.open(urlFinal, '_blank');
+    } else {
+        window.open(URL_MICROSOFT_FORMS, '_blank');
+    }
 }
 
 // ============================================================================
