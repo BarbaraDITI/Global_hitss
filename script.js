@@ -222,12 +222,13 @@ function cerrarSesion() {
 // ============================================================================
 // 4. OPERACIÓN DEL ASESOR
 // ============================================================================
+
 async function procesarCSVHistorico() {
     const fileInput = document.getElementById('archivo-csv-historico');
     const status = document.getElementById('estado-importacion');
     if (!fileInput.files.length) return alert("Selecciona primero el archivo .csv exportado de tu Excel.");
 
-    status.innerText = "⏳ Leyendo archivo y analizando columnas...";
+    status.innerText = "⏳ Analizando estructura del archivo CSV...";
     const text = await fileInput.files[0].text();
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     if (lines.length < 2) {
@@ -235,20 +236,19 @@ async function procesarCSVHistorico() {
         return;
     }
 
-    // Buscar automáticamente la fila de encabezados (contiene SOT y USUARIO)
-    let headerIdx = lines.findIndex(l => l.toUpperCase().includes('SOT') && l.toUpperCase().includes('USUARIO'));
+    // Detectar fila de encabezados (donde aparezca SOT)
+    let headerIdx = lines.findIndex(l => l.toUpperCase().includes('SOT'));
     if (headerIdx === -1) headerIdx = 0;
 
     const headerLine = lines[headerIdx];
     const sep = (headerLine.match(/;/g) || []).length >= (headerLine.match(/,/g) || []).length ? ';' : ',';
     const headers = headerLine.split(sep).map(h => h.trim().toUpperCase().replace(/^"|"$/g, '').replace(/\s+/g, ' '));
 
-    // Buscar columnas de usuario y SOT de forma flexible
-    const colUsuario = headers.find(h => h === 'USUARIO' || h === 'USUARIO E' || h === 'USUARIO_E' || h.includes('CODIGO') || h.includes('ASESOR'));
     const colSot = headers.find(h => h === 'SOT' || h.includes('SOT'));
+    const colUsuario = headers.find(h => h === 'USUARIO' || h === 'USUARIO E' || h === 'USUARIO_E' || h.includes('CODIGO') || h.includes('ASESOR'));
 
-    if (!colUsuario || !colSot) {
-        status.innerText = `❌ No se detectaron columnas USUARIO y SOT. Encabezados leídos: ${headers.slice(0, 8).join(' | ')}`;
+    if (!colSot) {
+        status.innerText = `❌ No se halló columna SOT. Columnas leídas: ${headers.slice(0, 8).join(' | ')}`;
         return;
     }
 
@@ -258,33 +258,45 @@ async function procesarCSVHistorico() {
         return;
     }
 
-    // Normalizar códigos E (sin guiones ni espacios) para cruzar sin fallos
     const mapaUsuarios = new Map();
     (usuariosValidos || []).forEach(u => {
-        const norm = u.codigo_e.toUpperCase().replace(/[^A-Z0-9]/g, '');
-        mapaUsuarios.set(norm, u.codigo_e);
+        mapaUsuarios.set(u.codigo_e.toUpperCase().replace(/[^A-Z0-9]/g, ''), u.codigo_e);
     });
 
     const registros = [];
-    let ejemploNoEncontrado = '';
+    const usuariosNuevosAuto = new Map();
 
     for (let i = headerIdx + 1; i < lines.length; i++) {
         const cols = lines[i].split(sep).map(c => c.trim().replace(/^"|"$/g, ''));
         const row = {};
         headers.forEach((h, idx) => row[h] = cols[idx] || '');
 
-        const rawUser = (row[colUsuario] || '').toUpperCase().trim();
-        const userNorm = rawUser.replace(/[^A-Z0-9]/g, '');
-        const sot = (row[colSot] || '').trim();
+        const sot = (row[colSot] || '').replace(/[^0-9]/g, '');
+        if (!sot) continue;
 
-        if (!userNorm || !sot) continue;
-
-        if (!mapaUsuarios.has(userNorm)) {
-            if (!ejemploNoEncontrado) ejemploNoEncontrado = rawUser;
-            continue;
+        // Buscar código E en la columna usuario o en cualquier celda de la fila (ej: E760644)
+        let rawUser = colUsuario ? (row[colUsuario] || '').toUpperCase().trim() : '';
+        if (!rawUser || !/^E-?\d{5,7}$/.test(rawUser)) {
+            const matchEnFila = lines[i].toUpperCase().match(/\bE-?\d{5,7}\b/);
+            if (matchEnFila) rawUser = matchEnFila[0];
         }
 
-        const codigoExactoBD = mapaUsuarios.get(userNorm);
+        const userNorm = rawUser.replace(/[^A-Z0-9]/g, '');
+        if (!userNorm) continue;
+
+        let codigoExactoBD = mapaUsuarios.get(userNorm);
+        if (!codigoExactoBD) {
+            codigoExactoBD = userNorm;
+            mapaUsuarios.set(userNorm, codigoExactoBD);
+            usuariosNuevosAuto.set(codigoExactoBD, {
+                codigo_e: codigoExactoBD,
+                nombre_completo: row['NOMBRE'] || row['ASESOR'] || `ASESOR ${codigoExactoBD}`,
+                modalidad: 'Full Time',
+                area: 'Programador',
+                rol: 'ADP',
+                activo: true
+            });
+        }
 
         let gestion = (row['GESTION'] || row['GESTIÓN'] || 'CONFIRMO').toUpperCase().trim();
         if (!['CONFIRMO', 'NO CONTESTA', 'RECHAZADO', 'REPROGRAMADO'].includes(gestion)) {
@@ -297,7 +309,7 @@ async function procesarCSVHistorico() {
         let franja = (row['FRANJA'] || 'AM1').toUpperCase().trim();
         if (!['AM0', 'AM1', 'AM2', 'PM1', 'PM2'].includes(franja)) franja = 'AM1';
 
-        const fechaRaw = (row['FECHA DE GESTION'] || row['FECHA_GESTION'] || row['FECHA'] || obtenerFechaLima()).split(' ')[0];
+        const fechaRaw = (row['FECHA DE GESTION'] || row['FECHA_GESTION'] || row['HORA DE FINALIZACIÓN'] || row['FECHA'] || obtenerFechaLima()).split(' ')[0];
         let fechaNorm = obtenerFechaLima();
         if (fechaRaw.includes('/')) {
             const p = fechaRaw.split('/');
@@ -325,8 +337,18 @@ async function procesarCSVHistorico() {
     }
 
     if (registros.length === 0) {
-        status.innerText = `⚠️ 0 filas válidas. Total usuarios en BD: ${mapaUsuarios.size}. Ejemplo de usuario leído en CSV no hallado en BD: "${ejemploNoEncontrado || 'vacío'}"`;
+        status.innerText = `⚠️ No se encontraron filas con SOT y código E (ej: E760644). Encabezados: ${headers.slice(0, 6).join(' | ')}`;
         return;
+    }
+
+    // Registrar automáticamente asesores del CSV que no estaban en la tabla usuarios
+    if (usuariosNuevosAuto.size > 0) {
+        status.innerText = `⏳ Registrando ${usuariosNuevosAuto.size} asesores nuevos del histórico...`;
+        const { error: errNewUsers } = await supabaseClient.from('usuarios').insert(Array.from(usuariosNuevosAuto.values()));
+        if (errNewUsers) {
+            status.innerText = "❌ Error creando asesores nuevos: " + errNewUsers.message;
+            return;
+        }
     }
 
     status.innerText = `⏳ Subiendo ${registros.length} gestiones históricas a Supabase...`;
