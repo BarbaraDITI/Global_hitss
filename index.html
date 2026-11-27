@@ -106,7 +106,7 @@
             </div>
         </header>
 
-        <!-- VISTA A: OPERACIÓN DEL ASESOR (ADP) -->
+        <!-- VISTA A: OPERACIÓN DEL ASESOR (ADP) CON TU MOTOR ORIGINAL TOA -->
         <main id="vista-adp" style="display: none;">
             <section class="adp-kpi-banner">
                 <div class="kpi-pill">
@@ -114,12 +114,12 @@
                     <strong id="adp-avance-hoy">0 / 85 SOTs</strong>
                 </div>
                 <div class="kpi-pill">
-                    <span class="kpi-label">Tiempo Hablado Estimado</span>
-                    <strong id="adp-tiempo-hablado">0 / 150 min</strong>
+                    <span class="kpi-label">Estado Rendimiento</span>
+                    <strong id="adp-estado-rendimiento">RENDIMIENTO BAJO</strong>
                 </div>
                 <div class="kpi-pill">
-                    <span class="kpi-label">Cumplimiento / Efectividad</span>
-                    <strong id="adp-porcentaje">0% (0 Confirm.)</strong>
+                    <span class="kpi-label">Tiempo Hablado Estimado</span>
+                    <strong id="adp-tiempo-hablado">0 / 150 min</strong>
                 </div>
                 <div class="kpi-pill">
                     <span class="kpi-label">Mi Ritmo (Cadencia)</span>
@@ -132,31 +132,32 @@
             </section>
 
             <div class="grid-3-cols">
+                <!-- COLUMNA 1: PROCESADOR TOA + FORMATO FRANJA -->
                 <div class="col-stack">
                     <section class="card">
                         <div class="card-header">
                             <h3>1. Pegar Texto de TOA / SGA</h3>
                         </div>
-                        <textarea id="texto-toa" rows="5" placeholder="Pega aquí el detalle copiado de TOA..."></textarea>
-                        <div class="btn-row">
-                            <button class="btn btn-primary" onclick="procesarTextoTOA()">Procesar Texto</button>
-                            <button class="btn btn-secondary" onclick="limpiarCampos()">Limpiar</button>
+                        <textarea id="rawInput" rows="5" placeholder="Pega aquí el texto extraído de TOA..."></textarea>
+                        <div class="btn-row" style="margin-top: 8px;">
+                            <button class="btn btn-primary" id="btnProcesarTOA" onclick="procesarTextoTOA()">Procesar Texto</button>
+                            <button class="btn btn-secondary" id="btnLimpiarCol1y2" onclick="limpiarColumnas1y2()">Limpiar</button>
                         </div>
 
                         <div class="form-grid-2">
                             <div class="form-group">
                                 <label>Número SOT</label>
-                                <input type="text" id="campo-sot" placeholder="Ej: 92201849">
+                                <input type="text" id="pvSOT" placeholder="Ej: 92201849">
                             </div>
                             <div class="form-group">
                                 <label>Teléfono</label>
-                                <input type="text" id="campo-telefono" placeholder="Ej: 987654321">
+                                <input type="text" id="pvTel" placeholder="Ej: 987654321">
                             </div>
                         </div>
                         <div class="form-grid-2">
                             <div class="form-group">
                                 <label>Departamento</label>
-                                <select id="campo-departamento">
+                                <select id="pvDepartamento">
                                     <option value="LIMA">LIMA</option>
                                     <option value="AREQUIPA">AREQUIPA</option>
                                     <option value="LA LIBERTAD">LA LIBERTAD</option>
@@ -184,12 +185,12 @@
                             </div>
                             <div class="form-group">
                                 <label>Contrata</label>
-                                <input type="text" id="campo-contrata" placeholder="Ej: SAVAL / FEBEZA">
+                                <input type="text" id="pvContrata" placeholder="Ej: SAVAL">
                             </div>
                         </div>
                         <div class="form-group">
                             <label>Cliente (Titular)</label>
-                            <input type="text" id="campo-cliente" placeholder="Nombre completo del titular">
+                            <input type="text" id="pvCliente" placeholder="Nombre completo del titular">
                         </div>
                     </section>
 
@@ -199,16 +200,17 @@
                         </div>
                         <div class="form-group">
                             <label>Supervisor a Cargo (Editable)</label>
-                            <input type="text" id="sup-franja" placeholder="Ej: SUPERVISOR EN TURNO">
+                            <input type="text" id="inputSupCargo" placeholder="Ej: SUPERVISOR EN TURNO" oninput="actualizarFormatoHabilitarFranja()">
                         </div>
-                        <textarea id="resultado-franja" rows="4" readonly placeholder="El formato para habilitar franja aparecerá aquí..."></textarea>
-                        <div class="btn-row">
-                            <button class="btn btn-primary" onclick="generarFormatoFranja()">Generar</button>
-                            <button class="btn btn-secondary" onclick="copiarTextoElemento('resultado-franja')">Copiar Formato</button>
+                        <textarea id="outputHabilitarFranja" rows="5" readonly placeholder="El formato para habilitar franja aparecerá aquí..."></textarea>
+                        <div class="btn-row" style="margin-top: 8px;">
+                            <button class="btn btn-primary" id="btnGenerarHabilitar" onclick="actualizarFormatoHabilitarFranja(); mostrarToast('✅ Formato generado');">Generar</button>
+                            <button class="btn btn-secondary" id="btnCopiarHabilitar" onclick="copiarTextoElemento('outputHabilitarFranja')">Copiar Formato</button>
                         </div>
                     </section>
                 </div>
 
+                <!-- COLUMNA 2: CATEGORÍAS ORIGINALES + CAMPOS DINÁMICOS + PLANTILLA -->
                 <section class="card">
                     <div class="card-header">
                         <h3>2. Registrar Gestión y Plantilla</h3>
@@ -216,16 +218,17 @@
 
                     <div class="form-grid-2">
                         <div class="form-group">
-                            <label>Resultado (GESTION)</label>
-                            <select id="cat-principal" onchange="actualizarSubcategorias()">
-                                <option value="CONFIRMO">CONFIRMO</option>
-                                <option value="NO CONTESTA">NO CONTESTA</option>
-                                <option value="REPROGRAMADO">REPROGRAMADO</option>
-                                <option value="RECHAZADO">RECHAZADO</option>
+                            <label>Categoría Principal</label>
+                            <select id="selectCategoria" onchange="actualizarSubcategorias()">
+                                <option value="CONFIRMA">CONFIRMA</option>
+                                <option value="CICLO">CICLO DE LLAMADAS</option>
+                                <option value="REPROGRAMAR">REPROGRAMAR</option>
+                                <option value="RECHAZOS">RECHAZOS</option>
+                                <option value="FUERA_TOA">FUERA DE TOA</option>
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Cola (SOT GESTIONADA MANUAL)</label>
+                            <label>Cola (SOT Gestionada Manual)</label>
                             <select id="cola-manual">
                                 <option value="PROGRAMACIONES D+1">PROGRAMACIONES D+1</option>
                                 <option value="MIGRACIONES">MIGRACIONES</option>
@@ -237,53 +240,35 @@
                         </div>
                     </div>
 
-                    <div class="form-group" id="grupo-submotivo">
-                        <label>Motivo / Tipificación Detallada</label>
-                        <select id="sub-motivo"></select>
-                    </div>
-
-                    <div class="form-grid-2">
-                        <div class="form-group">
-                            <label>Fecha que desea Cliente</label>
-                            <input type="date" id="fecha-visita">
-                        </div>
-                        <div class="form-group">
-                            <label>Franja Horaria</label>
-                            <select id="franja-horaria">
-                                <option value="AM0">AM0</option>
-                                <option value="AM1" selected>AM1</option>
-                                <option value="AM2">AM2</option>
-                                <option value="PM1">PM1</option>
-                                <option value="PM2">PM2</option>
-                            </select>
-                        </div>
-                    </div>
-
                     <div class="form-group">
-                        <label>ID de Llamada (AICC)</label>
-                        <input type="text" id="id-llamada" placeholder="Ej: 17909701296">
+                        <label>Subcategoría / Tipificación</label>
+                        <select id="selectSubcategoria" onchange="renderizarCamposDinamicos()"></select>
                     </div>
+
+                    <!-- CONTENEDOR DINÁMICO DE TU CÓDIGO ORIGINAL -->
+                    <div id="contenedorDinamico" style="margin-bottom: 12px;"></div>
 
                     <div class="checkbox-row">
                         <input type="checkbox" id="check-abrir-forms" checked>
                         <label for="check-abrir-forms">Abrir Microsoft Forms corporativo al guardar</label>
                     </div>
 
-                    <button class="btn btn-primary btn-block" onclick="generarYGuardarPlantilla()">
+                    <button class="btn btn-primary btn-block" id="btnGenerarPlantilla" onclick="generarYGuardarPlantilla()">
                         ⚡ Generar, Copiar y Registrar SOT
                     </button>
 
                     <div class="form-group" style="margin-top: 12px;">
-                        <label>Vista Previa de Plantilla</label>
-                        <textarea id="plantilla-resultado" rows="8" placeholder="La plantilla generada aparecerá aquí..."></textarea>
+                        <label>Plantilla Generada</label>
+                        <textarea id="outputPlantilla" rows="9" placeholder="La plantilla generada aparecerá aquí..."></textarea>
                     </div>
 
                     <div class="btn-row">
-                        <button class="btn btn-secondary" onclick="copiarTextoElemento('plantilla-resultado')">Solo Copiar</button>
+                        <button class="btn btn-secondary" id="btnCopiarPlantilla" onclick="copiarTextoElemento('outputPlantilla')">Solo Copiar</button>
                         <button class="btn btn-success" onclick="abrirMicrosoftForms()">Abrir Forms Manual</button>
                     </div>
                 </section>
 
+                <!-- COLUMNA 3: BLOC DE NOTAS DIARIO -->
                 <section class="card">
                     <div class="card-header flex-between">
                         <h3>3. Registro Diario</h3>
@@ -292,7 +277,7 @@
                     <div id="lista-bloc" class="bloc-container">
                         <p class="empty-msg">Aún no hay gestiones registradas hoy.</p>
                     </div>
-                    <button class="btn btn-dark btn-block" onclick="exportarBlocTXT()">📥 Exportar Bloc (.txt)</button>
+                    <button class="btn btn-dark btn-block" id="btnExportarBloc" onclick="exportarBlocTXT()">📥 Exportar Bloc (.txt)</button>
                 </section>
             </div>
         </main>
@@ -303,7 +288,7 @@
                 <div class="admin-toolbar">
                     <div>
                         <h2>Panel Gerencial de Productividad y Contactabilidad</h2>
-                        <p class="muted-text">Metas: Full Time (85 SOTs / 150 min) • Part Time (45 SOTs / 90 min)</p>
+                        <p class="muted-text">Regla KPI: &lt; 60 Rendimiento Bajo • &gt; 61 Rendimiento Medio • &ge; 85 Cumple la Meta (150m FT / 90m PT)</p>
                     </div>
                     <div class="admin-filters">
                         <select id="admin-filtro-area" onchange="cargarDashboardSupervisor()">
@@ -321,7 +306,6 @@
                         </select>
                         <input type="date" id="admin-filtro-fecha" style="display: none;" onchange="cargarDashboardSupervisor()">
                         <input type="month" id="admin-filtro-mes" style="display: none;" onchange="cargarDashboardSupervisor()">
-                        <button class="btn btn-gold" onclick="abrirModalImportar()">📤 Cargar Excel Histórico (.csv)</button>
                         <button class="btn btn-primary" onclick="cargarDashboardSupervisor()">🔄 Actualizar</button>
                         <button class="btn btn-success" onclick="exportarReporteAdminCSV()">📊 Exportar CSV</button>
                     </div>
@@ -337,16 +321,15 @@
                         <strong id="kpi-global-efectividad">0% / 0%</strong>
                     </div>
                     <div class="stat-box">
-                        <span>Asesores en Meta Mínima</span>
+                        <span>Cumplen Meta (&ge;85) / Medio (&gt;61)</span>
                         <strong id="kpi-global-cumplen">0 / 0</strong>
                     </div>
                     <div class="stat-box">
-                        <span>Tiempo Hablado Prom. / Cadencia</span>
+                        <span>Tiempo Hablado Prom.</span>
                         <strong id="kpi-global-cadencia">-- min</strong>
                     </div>
                 </div>
 
-                <!-- GRÁFICAS EN TIEMPO REAL -->
                 <div class="charts-grid">
                     <div class="chart-card">
                         <canvas id="grafico-horas"></canvas>
@@ -368,8 +351,8 @@
                                 <th colspan="14">Intervalo Horario (07:00 a 20:00+)</th>
                                 <th colspan="4">Desglose Gestión</th>
                                 <th rowspan="2">SOTs / Meta</th>
-                                <th rowspan="2">T. Hablado / Meta</th>
-                                <th rowspan="2">Estado KPI</th>
+                                <th rowspan="2">T. Hablado</th>
+                                <th rowspan="2">Estado Rendimiento</th>
                                 <th rowspan="2">Cadencia</th>
                             </tr>
                             <tr>
@@ -387,24 +370,7 @@
         </main>
     </div>
 
-    <!-- MODAL IMPORTAR EXCEL HISTÓRICO -->
-    <div id="modal-importar" class="modal-backdrop" style="display: none;">
-        <div class="modal-box">
-            <h3 style="color: var(--pine-light); margin-bottom: 8px;">📤 Importar Datos Antiguos desde Excel</h3>
-            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-                En tu Excel, abre la hoja <strong>Sheet1</strong> $\rightarrow$ <strong>Archivo $\rightarrow$ Guardar como $\rightarrow$ CSV (delimitado por comas) (*.csv)</strong> y súbelo aquí para poblar las gráficas y el historial.
-            </p>
-            <input type="file" id="archivo-csv-historico" accept=".csv" style="margin-bottom: 12px;">
-            <div id="estado-importacion" style="font-size: 12px; margin-bottom: 12px; font-weight: 600;"></div>
-            <div class="btn-row">
-                <button class="btn btn-success" onclick="procesarCSVHistorico()">Subir a Supabase</button>
-                <button class="btn btn-secondary" onclick="cerrarModalImportar()">Cerrar</button>
-            </div>
-        </div>
-    </div>
-
     <div id="toast" class="toast"></div>
-    
-    <script src="script.js?v=4"></script>
+    <script src="script.js?v=5"></script>
 </body>
 </html>
