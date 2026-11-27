@@ -248,25 +248,21 @@
                     <!-- CONTENEDOR DINÁMICO DE TU CÓDIGO ORIGINAL -->
                     <div id="contenedorDinamico" style="margin-bottom: 12px;"></div>
 
-                    <div class="checkbox-row">
-                        <input type="checkbox" id="check-abrir-forms" checked>
-                        <label for="check-abrir-forms">Abrir Microsoft Forms corporativo al guardar</label>
+                  <!-- BOTONES INDEPENDIENTES -->
+                    <div class="btn-row" style="margin-top: 10px;">
+                        <button class="btn btn-primary" onclick="generarPlantillaSolo()">1. Generar Plantilla</button>
+                        <button class="btn btn-secondary" onclick="copiarTextoElemento('outputPlantilla')">2. Copiar Plantilla</button>
                     </div>
 
-                    <button class="btn btn-primary btn-block" id="btnGenerarPlantilla" onclick="generarYGuardarPlantilla()">
-                        ⚡ Generar, Copiar y Registrar SOT
-                    </button>
-
-                    <div class="form-group" style="margin-top: 12px;">
+                    <div class="form-group" style="margin-top: 10px;">
                         <label>Plantilla Generada</label>
                         <textarea id="outputPlantilla" rows="9" placeholder="La plantilla generada aparecerá aquí..."></textarea>
                     </div>
 
                     <div class="btn-row">
-                        <button class="btn btn-secondary" id="btnCopiarPlantilla" onclick="copiarTextoElemento('outputPlantilla')">Solo Copiar</button>
-                        <button class="btn btn-success" onclick="abrirMicrosoftForms()">Abrir Forms Manual</button>
+                        <button class="btn btn-success" onclick="guardarGestionEnBD()">3. Guardar en BD</button>
+                        <button class="btn btn-gold" onclick="abrirFormsAutocompletado()">4. Abrir Forms</button>
                     </div>
-                </section>
 
                 <!-- COLUMNA 3: BLOC DE NOTAS DIARIO -->
                 <section class="card">
