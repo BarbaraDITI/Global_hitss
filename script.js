@@ -2,66 +2,161 @@
 // 1. CONFIGURACIÓN Y CONEXIÓN A SUPABASE
 // ============================================================================
 const SUPABASE_URL = 'https://tjflvdvnsxmrkouleoyn.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_-1DlkWkPrU2UeogbcApIzQ_NUVR58_4'; // Ej: sb_publishable_...
+const SUPABASE_ANON_KEY = 'PEGA_AQUI_TU_CLAVE_PUBLISHABLE'; // Ej: sb_publishable_...
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const URL_MICROSOFT_FORMS = "https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=CkbVXyW03kmb0PzSYnDTDHJyTl3EI1JImzWpf0AOFcFUQVRVUkRGUUlNNzhDUktCNjBSN0hQOVozWi4u";
 
-// NUEVAS METAS OPERATIVAS ACTUALIZADAS
-const METAS_DIARIAS = {
-    'Full Time': { sots: 85, minutosHablados: 150 },
-    'Part Time': { sots: 45, minutosHablados: 90 }
+const METAS_TIEMPO_HABLADO = {
+    'Full Time': 150,
+    'Part Time': 90
 };
 
-const SUBMOTIVOS_CONFIG = {
-    'CONFIRMO': [
-        'Confirma visita con titular en llamada',
-        'Confirma visita con familiar autorizado',
-        'Confirma adelanto de visita (AM0)'
-    ],
-    'NO CONTESTA': [
-        'Ciclo 1 - No contesta / Buzón de voz',
-        'Ciclo 2 - Corta llamada / Sin audio',
-        'Ciclo 3 - Número equivocado / Fuera de servicio'
-    ],
-    'REPROGRAMADO': [
-        'Reprogramación a solicitud del cliente',
-        'Reprogramación por falta de cuota técnica',
-        'Reprogramación por incidencia externa'
-    ],
-    'RECHAZADO': [
-        '1. Cliente ya cuenta con servicio instalado',
-        '2. Desiste del servicio por demora',
-        '3. Dirección errada / Sin cobertura técnica',
-        '4. Titular no reconoce solicitud de venta',
-        '5. Duplicidad de SOT en sistema',
-        '6. Cliente solicita baja / cancelación',
-        '7. Falta de facilidades técnicas en domicilio',
-        '8. Fuera de zona de atención asignada'
-    ]
-};
-
+// Variables de estado global
 let usuarioActivo = null;
 let usuarioTemporal = null;
 let gestionesDelDiaLocal = [];
 let horaInicioActividad = new Date().toISOString();
+let fechaToaPorDefecto = "";
+let franjaToaPorDefecto = "AM1";
+
+// Variables extraídas de TOA (Tu extractor original)
+let planoExtraido = "S/N";
+let subTipoExtraido = "S/N";
+let codClienteExtraido = "S/N";
+let direccionExtraida = "S/N";
+let distritoExtraido = "S/N";
+
 let chartHorasInstance = null;
 let chartGestionesInstance = null;
 
 // ============================================================================
-// 2. INICIALIZACIÓN
+// CONFIGURACIÓN CORREGIDA DE RECHAZOS (8 CATEGORÍAS ORIGINALES)
+// ============================================================================
+const SUBMOTIVOS_RECHAZO = {
+  RECH_NO_DESEA: [
+    "Cliente indica tener problemas económicos",
+    "Cuenta con servicio de otro operador",
+    "Demora en atención, no desea esperar",
+    "Incumplimiento de fecha pactada",
+    "Motivos personales, no da razones",
+    "Mudanza o viaje",
+    "No desea recibir a personal técnico",
+    "No está de acuerdo con pago",
+    "No ha contratado ningún servicio",
+    "Requiere cambio de titularidad",
+    "Solicitó otra fecha de instalación en la venta",
+    "Técnico indujo al rechazo por mala información",
+    "Tiene propuesta de otro operador"
+  ],
+  RECH_DUPLICIDAD: [
+    "Doble SOT de diferentes puntos de venta",
+    "Doble SOT del mismo punto de venta",
+    "Se atendió con otra SOT",
+    "Se rechazó con otra SOT"
+  ],
+  RECH_FACILIDADES: [
+    "Ductos obstruidos",
+    "Dueño de casa o edificio no autoriza instalación",
+    "Sin acceso al techo, montantes u otros ambientes"
+  ],
+  RECH_CONTACTO: [
+    "Numero equivocado, no existe o no responde"
+  ],
+  RECH_DIRECCION: [
+    "Direccion incorrecta"
+  ],
+  RECH_OFERTA: [
+    "Cliente solicito PostVenta (Adicionales, traslado)",
+    "Equipo no autorizado para venta",
+    "Paquete no es lo solicitado por el Cliente",
+    "Solicita instalación compartida para 2 direcciones",
+    "Tecnología incorrecta",
+    "Tecnología incorrecta, cliente no acepta FTTH",
+    "Tecnología incorrecta, cliente no acepta HFC",
+    "Tecnología incorrecta, se genera SOT de reemplazo",
+    "Velocidad supera capacidad de plano"
+  ],
+  RECH_SISTEMA: [
+    "Campaña mal configurada, etiquetas incorrectas Duplicidad de números o etiquetas",
+    "Mal generada, no genera reservas",
+    "Nombre del Cliente con errores NN NN NN",
+    "Sin workflow, sin tareas generadas",
+    "SOT sin customer, plano, Co_id"
+  ],
+  RECH_FRAUDE: [
+    "Cliente ya tiene un servicio activo en la misma dirección"
+  ]
+};
+
+const CATEGORIAS_CONFIG = {
+  CONFIRMA: [
+    { id: 'CONF_LLAMADA', nombre: 'Confirma visita en llamada' },
+    { id: 'CONF_ADELANTO', nombre: 'Adelanto de visita' },
+    { id: 'CONF_MANTIENE', nombre: 'Mantiene fecha programada' }
+  ],
+  CICLO: [
+    { id: 'CICLO_CONTACTO', nombre: 'Ciclo de llamadas (Falta de contacto)' }
+  ],
+  REPROGRAMAR: [
+    { id: 'REPRO_CLIENTE', nombre: 'Reprogramado por Cliente' },
+    { id: 'REPRO_CLARO', nombre: 'Reprogramado por Claro' }
+  ],
+  RECHAZOS: [
+    { id: 'RECH_NO_DESEA', nombre: 'Cliente no desea servicio' },
+    { id: 'RECH_DUPLICIDAD', nombre: 'Por duplicidad - Mesa' },
+    { id: 'RECH_FACILIDADES', nombre: 'Por facilidades técnicas del cliente - Mesa' },
+    { id: 'RECH_CONTACTO', nombre: 'Por falta de contacto - Mesa' },
+    { id: 'RECH_DIRECCION', nombre: 'Por mal ingreso de dirección - Mesa' },
+    { id: 'RECH_OFERTA', nombre: 'Por mala oferta - Mesa' },
+    { id: 'RECH_SISTEMA', nombre: 'Por SOT con errores de Sistema - Mesa' },
+    { id: 'RECH_FRAUDE', nombre: 'Por posible fraude - Mesa' }
+  ],
+  FUERA_TOA: [
+    { id: 'FTOA_GENERAL', nombre: 'Plantilla Fuera de TOA' }
+  ]
+};
+
+// ============================================================================
+// EVALUACIÓN DE RENDIMIENTO (<60 BAJO, >61 MEDIO, >=85 CUMPLE LA META)
+// ============================================================================
+function evaluarEstadoRendimiento(sots, diasActivos = 1) {
+    const umbralMedio = 61 * diasActivos;
+    const umbralMeta = 85 * diasActivos;
+
+    if (sots >= umbralMeta) {
+        return { texto: 'CUMPLE LA META', clase: 'badge-ok', color: '#15803d', metaReferencia: umbralMeta };
+    } else if (sots >= umbralMedio) {
+        return { texto: 'RENDIMIENTO MEDIO', clase: 'badge-mid', color: '#d97706', metaReferencia: umbralMeta };
+    } else {
+        return { texto: 'RENDIMIENTO BAJO', clase: 'badge-warn', color: '#b91c1c', metaReferencia: umbralMeta };
+    }
+}
+
+// ============================================================================
+// 2. INICIALIZACIÓN Y EVENTOS DOM
 // ============================================================================
 document.addEventListener('DOMContentLoaded', () => {
     const hoy = obtenerFechaLima();
     const mesActual = hoy.slice(0, 7);
-    
-    if (document.getElementById('fecha-visita')) document.getElementById('fecha-visita').value = hoy;
+    fechaToaPorDefecto = hoy;
+
     if (document.getElementById('admin-filtro-fecha')) document.getElementById('admin-filtro-fecha').value = hoy;
     if (document.getElementById('admin-filtro-mes')) document.getElementById('admin-filtro-mes').value = mesActual;
-    
+
+    const inputE = document.getElementById('input-codigo-e');
+    if (inputE) {
+        inputE.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                verificarCodigoE();
+            }
+        });
+    }
+
     actualizarSubcategorias();
 
-    const sesionGuardada = localStorage.getItem('sesion_hitss_v3');
+    const sesionGuardada = localStorage.getItem('sesion_hitss_v4');
     if (sesionGuardada) {
         usuarioActivo = JSON.parse(sesionGuardada);
         mostrarInterfazPorRol(usuarioActivo);
@@ -77,7 +172,7 @@ function obtenerHoraLima() {
 }
 
 // ============================================================================
-// 3. CONTROL DE ACCESO INTELIGENTE
+// 3. CONTROL DE ACCESO INTELIGENTE (SUPABASE)
 // ============================================================================
 async function verificarCodigoE() {
     const codigo = document.getElementById('input-codigo-e').value.toUpperCase().trim();
@@ -181,7 +276,7 @@ async function registrarDesdeCero() {
 
 function completarLogin(user) {
     usuarioActivo = user;
-    localStorage.setItem('sesion_hitss_v3', JSON.stringify(user));
+    localStorage.setItem('sesion_hitss_v4', JSON.stringify(user));
     mostrarInterfazPorRol(user);
 }
 
@@ -215,273 +310,532 @@ function reiniciarLogin() {
 }
 
 function cerrarSesion() {
-    localStorage.removeItem('sesion_hitss_v3');
+    localStorage.removeItem('sesion_hitss_v4');
     location.reload();
 }
 
-
-
-
-
-
-
 // ============================================================================
-// 4. OPERACIÓN DEL ASESOR
+// 4. PROCESADOR DE TEXTO TOA (TU EXTRACTOR ORIGINAL COMPLETO)
 // ============================================================================
+function procesarTextoTOA() {
+    const text = document.getElementById('rawInput').value;
 
-async function procesarCSVHistorico() {
-    const fileInput = document.getElementById('archivo-csv-historico');
-    const status = document.getElementById('estado-importacion');
-    if (!fileInput.files.length) return alert("Selecciona primero el archivo .csv exportado de tu Excel.");
-
-    status.innerText = "⏳ Leyendo archivo CSV (soporte tildes/Windows-1252)...";
-    const buffer = await fileInput.files[0].arrayBuffer();
-    let text = new TextDecoder('utf-8').decode(buffer);
-    if (text.includes('\uFFFD')) {
-        text = new TextDecoder('windows-1252').decode(buffer);
-    }
-
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length < 2) {
-        status.innerText = "❌ El archivo está vacío.";
+    if (!text.trim()) {
+        mostrarToast("⚠️ Pega el texto extraído de TOA");
         return;
     }
 
-    let headerIdx = lines.findIndex(l => l.toUpperCase().includes('SOT') && l.toUpperCase().includes('USUARIO'));
-    if (headerIdx === -1) headerIdx = 0;
+    horaInicioActividad = new Date().toISOString();
 
-    const headerLine = lines[headerIdx];
-    const sep = (headerLine.match(/;/g) || []).length >= (headerLine.match(/,/g) || []).length ? ';' : ',';
-    const headers = headerLine.split(sep).map(h => h.trim().toUpperCase().replace(/^"|"$/g, '').replace(/\s+/g, ' '));
+    const sotMatch = text.match(/(?:SOT|sot|Nro SOT|N° SOT|Orden)\s*[:\t\r\n]*\s*(\d+)/i) || text.match(/\b\d{8,9}\b/);
+    const telMatch = text.match(/(?:Telefono|Telefono\s*Cliente|Contacto|Movil|Celular|Telefonos)\s*[:\t\r\n]*\s*(\d{7,9})/i) || text.match(/\b9\d{8}\b/);
 
-    const { data: usuariosValidos, error: errUsers } = await supabaseClient.from('usuarios').select('codigo_e');
-    if (errUsers) {
-        status.innerText = "❌ Error consultando usuarios en Supabase: " + errUsers.message;
-        return;
+    let cliente = "S/N";
+    const clienteMatch = text.match(/Nombre\s*[:\t\r\n]+\s*([\s\S]*?)(?=\s*Tipo\s*de\s*Documento)/i);
+    if (clienteMatch && clienteMatch[1]) {
+        cliente = clienteMatch[1].replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+    } else {
+        const clienteFallback = text.match(/(?:CLIENTE|Abonado|Cliente)\s*[:\t\r\n]*\s*([A-ZÁÉÍÓÚÑa-zñáéíóú\s.,]+)(?=\r|\n|$)/i);
+        if (clienteFallback && clienteFallback[1]) {
+            cliente = clienteFallback[1].trim();
+        }
     }
 
-    const mapaUsuarios = new Map();
-    (usuariosValidos || []).forEach(u => {
-        mapaUsuarios.set(u.codigo_e.toUpperCase().replace(/[^A-Z0-9]/g, ''), u.codigo_e);
-    });
+    if (/^(CLIENTE|NOMBRE|ABONADO|S\/N)$/i.test(cliente)) cliente = "S/N";
 
-    const registros = [];
-    const usuariosNuevosAuto = new Map();
-
-    const convertirFechaISO = (valor, fallback) => {
-        if (!valor) return fallback;
-        const soloFecha = valor.trim().split(' ')[0];
-        if (soloFecha.includes('/')) {
-            const p = soloFecha.split('/');
-            if (p.length === 3) return `${p[2].padStart(4, '20')}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+    let contrata = "SAVAL";
+    const contrataDirectaMatch = text.match(/\b(?:INST|MANT|REVI|MANTENIMIENTO)\s+([A-Z0-9]+)/i);
+    if (contrataDirectaMatch && contrataDirectaMatch[1]) {
+        contrata = contrataDirectaMatch[1].toUpperCase().trim();
+    } else {
+        const detallesMatch = text.match(/Detalles?\s+de\s+actividad[\s\S]*?\n\s*([A-Z0-9]+)/i);
+        if (detallesMatch && detallesMatch[1] && !/^(DETALLES|DATOS|VELASQUEZ|ORACLE)$/i.test(detallesMatch[1])) {
+            contrata = detallesMatch[1].toUpperCase().trim();
         }
-        if (soloFecha.includes('-')) return soloFecha;
-        return fallback;
+    }
+
+    // Fecha y Franja
+    const fechaMatch = text.match(/(?:Fecha\s*de\s*Programacion|Fecha)\s*[:\t\r\n]*\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i) || text.match(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/);
+    if (fechaMatch && fechaMatch[1]) {
+        const partes = fechaMatch[1].split('/');
+        if (partes.length === 3) {
+            let dia = partes[0].padStart(2, '0');
+            let mes = partes[1].padStart(2, '0');
+            let anio = partes[2].length === 2 ? `20${partes[2]}` : partes[2];
+            fechaToaPorDefecto = `${anio}-${mes}-${dia}`;
+        }
+    } else {
+        fechaToaPorDefecto = obtenerFechaLima();
+    }
+
+    const franjaMatch = text.match(/\b(AM0|AM1|AM2|PM1|PM2|PM3)\b/i);
+    franjaToaPorDefecto = franjaMatch ? franjaMatch[1].toUpperCase() : "AM1";
+
+    // Variables secundarias
+    const planoMatch = text.match(/(?:Plano)\s*[:\t\r\n]*\s*([A-Z0-9-]+)/i);
+    if (planoMatch) planoExtraido = planoMatch[1].trim();
+
+    const subTipoMatch = text.match(/(?:Sub\s*Tipo\s*de\s*Orden|Subtipo)\s*[:\t\r\n]*\s*([^\r\n]+)/i);
+    if (subTipoMatch) subTipoExtraido = subTipoMatch[1].trim();
+
+    const codClienteMatch = text.match(/(?:Código\s*de\s*Cliente|Cod\s*Cliente)\s*[:\t\r\n]*\s*(\d+)/i);
+    if (codClienteMatch) codClienteExtraido = codClienteMatch[1].trim();
+
+    const dirMatch = text.match(/(?:Direccion|Dirección)\s*[:\t\r\n]*\s*([^\r\n]+)/i);
+    if (dirMatch) direccionExtraida = dirMatch[1].trim();
+
+    const distMatch = text.match(/(?:Distrito)\s*[:\t\r\n]*\s*([^\r\n]+)/i);
+    if (distMatch) distritoExtraido = distMatch[1].trim();
+
+    // Detectar Departamento en el texto
+    const selectDepto = document.getElementById('pvDepartamento');
+    if (selectDepto) {
+        const textoUpper = text.toUpperCase();
+        for (let opt of selectDepto.options) {
+            if (textoUpper.includes(opt.value)) {
+                selectDepto.value = opt.value;
+                break;
+            }
+        }
+    }
+
+    const sot = sotMatch ? (sotMatch[1] || sotMatch[0]) : "";
+    const telefono = telMatch ? (telMatch[1] || telMatch[0]) : "";
+
+    document.getElementById('pvSOT').value = sot;
+    document.getElementById('pvTel').value = telefono;
+    document.getElementById('pvCliente').value = cliente;
+    document.getElementById('pvContrata').value = contrata;
+
+    renderizarCamposDinamicos();
+    actualizarFormatoHabilitarFranja();
+    mostrarToast("✅ Datos de TOA procesados correctamente");
+}
+
+function obtenerClienteData() {
+    return {
+        sot: document.getElementById('pvSOT').value.trim() || "S/N",
+        telefono: document.getElementById('pvTel').value.trim() || "S/N",
+        cliente: document.getElementById('pvCliente').value.trim() || "S/N",
+        contrata: document.getElementById('pvContrata').value.trim() || "SAVAL",
+        departamento: document.getElementById('pvDepartamento').value || "LIMA"
     };
+}
 
-    const convertirTimestampISO = (valor, fechaBase) => {
-        if (!valor || !valor.includes(':')) return `${fechaBase}T10:00:00-05:00`;
-        const partes = valor.trim().split(' ');
-        const fIso = convertirFechaISO(partes[0], fechaBase);
-        const horaPartes = (partes[1] || '10:00').split(':');
-        const hh = horaPartes[0].padStart(2, '0');
-        const mm = (horaPartes[1] || '00').padStart(2, '0');
-        const ss = (horaPartes[2] || '00').padStart(2, '0');
-        return `${fIso}T${hh}:${mm}:${ss}-05:00`;
-    };
+// ============================================================================
+// 5. CONTROLES DINÁMICOS Y GENERACIÓN DE PLANTILLAS ORIGINALES
+// ============================================================================
+function actualizarSubcategorias() {
+    const cat = document.getElementById('selectCategoria').value;
+    const subSelect = document.getElementById('selectSubcategoria');
+    if (!subSelect) return;
+    subSelect.innerHTML = '';
 
-    for (let i = headerIdx + 1; i < lines.length; i++) {
-        const cols = lines[i].split(sep).map(c => c.trim().replace(/^"|"$/g, ''));
-        const row = {};
-        headers.forEach((h, idx) => row[h] = cols[idx] || '');
-
-        const sot = (row['SOT'] || '').replace(/[^0-9]/g, '');
-        if (!sot) continue;
-
-        const rawUser = (row['USUARIO E'] || row['USUARIO'] || '').toUpperCase().trim();
-        const userNorm = rawUser.replace(/[^A-Z0-9]/g, '');
-        if (!userNorm) continue;
-
-        let codigoExactoBD = mapaUsuarios.get(userNorm);
-        if (!codigoExactoBD) {
-            codigoExactoBD = userNorm;
-            mapaUsuarios.set(userNorm, codigoExactoBD);
-            const modRaw = (row['MODALIDAD'] || '').toLowerCase();
-            const modalidad = modRaw.includes('part') ? 'Part Time' : 'Full Time';
-            usuariosNuevosAuto.set(codigoExactoBD, {
-                codigo_e: codigoExactoBD,
-                nombre_completo: (row['NOMBRE2'] || row['NOMBRE'] || `ASESOR ${codigoExactoBD}`).trim(),
-                fecha_ingreso: convertirFechaISO(row['FECHA DE INGRESO'], obtenerFechaLima()),
-                modalidad: modalidad,
-                area: (row['AREA'] || 'Programador').trim(),
-                rol: 'ADP',
-                activo: true
-            });
-        }
-
-        let gestion = (row['GESTION'] || 'CONFIRMO').toUpperCase().trim();
-        if (!['CONFIRMO', 'NO CONTESTA', 'RECHAZADO', 'REPROGRAMADO'].includes(gestion)) {
-            if (gestion.includes('NO CONT')) gestion = 'NO CONTESTA';
-            else if (gestion.includes('RECH')) gestion = 'RECHAZADO';
-            else if (gestion.includes('REPRO')) gestion = 'REPROGRAMADO';
-            else gestion = 'CONFIRMO';
-        }
-
-        let franja = (row['FRANJA'] || 'AM1').toUpperCase().trim();
-        if (!['AM0', 'AM1', 'AM2', 'PM1', 'PM2'].includes(franja)) franja = 'AM1';
-
-        const fechaGestion = convertirFechaISO(row['FECHA GESTION'] || row['FECHA DE GESTION'], obtenerFechaLima());
-        const fechaDesea = convertirFechaISO(row['FECHA QUE DESEA CLIENTE'], fechaGestion);
-        const horaInicio = convertirTimestampISO(row['HORA DE INICIO'], fechaGestion);
-        const horaFin = convertirTimestampISO(row['HORA DE FINALIZACIÓN'] || row['HORA DE FINALIZACION'], fechaGestion);
-        const intervalo = parseInt(row['INTERVALO'] || '10', 10) || 10;
-        const depto = (row['DEPARTAMENTO1'] || row['DEPARTAMENTO'] || 'LIMA').toUpperCase().trim() || 'LIMA';
-
-        registros.push({
-            usuario_e: codigoExactoBD,
-            sot: sot,
-            fecha_desea_cliente: fechaDesea,
-            franja: franja,
-            hora_inicio: horaInicio,
-            hora_finalizacion: horaFin,
-            fecha_gestion: fechaGestion,
-            intervalo: Math.min(23, Math.max(0, intervalo)),
-            gestion: gestion,
-            submotivo: row['SUBMOTIVO'] || 'Histórico Excel',
-            departamento: depto,
-            ya_tiene_gestion: (row['¿YA TIENE GESTION?'] || 'NO').toUpperCase().trim() === 'SI' ? 'SI' : 'NO',
-            sot_gestionada_manual: (row['SOT GESTIONADA MANUAL'] || 'PROGRAMACIONES D+1').trim(),
-            id_llamada: (row['ID'] || 'HISTORICO').trim()
+    if (CATEGORIAS_CONFIG[cat]) {
+        CATEGORIAS_CONFIG[cat].forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.id;
+            opt.textContent = item.nombre;
+            subSelect.appendChild(opt);
         });
     }
 
-    if (registros.length === 0) {
-        status.innerText = `⚠️ No se leyeron filas válidas. Encabezados detectados: ${headers.slice(0, 8).join(' | ')}`;
-        return;
-    }
-
-    if (usuariosNuevosAuto.size > 0) {
-        status.innerText = `⏳ Registrando ${usuariosNuevosAuto.size} asesores adicionales del histórico...`;
-        const { error: errNewUsers } = await supabaseClient.from('usuarios').insert(Array.from(usuariosNuevosAuto.values()));
-        if (errNewUsers) {
-            status.innerText = "❌ Error creando asesores nuevos: " + errNewUsers.message;
-            return;
-        }
-    }
-
-    status.innerText = `⏳ Subiendo ${registros.length} gestiones históricas a Supabase...`;
-    for (let i = 0; i < registros.length; i += 250) {
-        const lote = registros.slice(i, i + 250);
-        const { error } = await supabaseClient.from('gestiones_sot').insert(lote);
-        if (error) {
-            status.innerText = "❌ Error al subir lote: " + error.message;
-            return;
-        }
-    }
-
-    status.innerText = `✅ ¡Éxito! Se cargaron ${registros.length} registros históricos.`;
-    cargarDashboardSupervisor();
+    renderizarCamposDinamicos();
 }
 
+function renderizarCamposDinamicos() {
+    const subcat = document.getElementById('selectSubcategoria').value;
+    const contenedor = document.getElementById('contenedorDinamico');
+    if (!contenedor) return;
+    contenedor.innerHTML = '';
 
+    let html = '<div class="form-grid-2">';
 
+    if (subcat.startsWith('CONF_') || subcat === 'FTOA_GENERAL') {
+        html += `
+            <div class="form-group">
+                <label>Fecha de Visita</label>
+                <input type="date" id="inputFecha">
+            </div>
+            <div class="form-group">
+                <label>Franja Horaria</label>
+                <select id="selectFranja">
+                    <option value="AM0">AM0</option>
+                    <option value="AM1">AM1</option>
+                    <option value="AM2">AM2</option>
+                    <option value="PM1">PM1</option>
+                    <option value="PM2">PM2</option>
+                </select>
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+                <label>ID Llamada</label>
+                <input type="text" id="inputIDLlamada" placeholder="Ej: 17909701296">
+            </div>
+        `;
+    } else if (subcat === 'CICLO_CONTACTO') {
+        html += `
+            <div class="form-group">
+                <label>Ciclo Nro</label>
+                <input type="text" id="inputCiclo" value="1">
+            </div>
+            <div class="form-group">
+                <label>Cant. Llamadas</label>
+                <input type="text" id="inputCantLlamadas" value="4">
+            </div>
+            <div class="form-group">
+                <label>Sub-Motivo</label>
+                <select id="selectSubmotivo">
+                    <option value="No contesta">No contesta</option>
+                    <option value="Buzón de voz">Buzón de voz</option>
+                    <option value="Número no existe">Número no existe</option>
+                    <option value="Apagado">Apagado</option>
+                    <option value="Corta llamada">Corta llamada</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>ID Llamada</label>
+                <input type="text" id="inputIDLlamada" placeholder="Ej: 17909701296">
+            </div>
+        `;
+    } else if (subcat.startsWith('REPRO_')) {
+        const esClaro = subcat === 'REPRO_CLARO';
+        html += `
+            <div class="form-group" style="grid-column: span 2;">
+                <label>Motivo Reprogramación</label>
+                <select id="inputMotivoDetalle">
+                    ${esClaro ? `
+                        <option value="# Pérdida de fecha de agendamiento"># Pérdida de fecha de agendamiento</option>
+                        <option value="Errores en la generación de la SOT">Errores en la generación de la SOT</option>
+                        <option value="Inconvenientes con la contratista">Inconvenientes con la contratista</option>
+                        <option value="Configuraciones de TOA (OFSC)">Configuraciones de TOA (OFSC)</option>
+                    ` : `
+                        <option value="# Cambios en las fechas y franjas solicitadas"># Cambios en fechas/franjas solicitadas</option>
+                        <option value="Facilidades del cliente">Facilidades del cliente</option>
+                        <option value="Falta de contacto">Falta de contacto</option>
+                        <option value="Ausente">Ausente</option>
+                    `}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Nueva Fecha</label>
+                <input type="date" id="inputFecha">
+            </div>
+            <div class="form-group">
+                <label>Nueva Franja</label>
+                <select id="selectFranja">
+                    <option value="AM0">AM0</option>
+                    <option value="AM1">AM1</option>
+                    <option value="AM2">AM2</option>
+                    <option value="PM1">PM1</option>
+                    <option value="PM2">PM2</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>ID Llamada</label>
+                <input type="text" id="inputIDLlamada" placeholder="Ej: 17909701296">
+            </div>
+            <div class="form-group">
+                <label>Observación</label>
+                <input type="text" id="inputObs" placeholder="Observaciones adicionales...">
+            </div>
+        `;
+    } else if (subcat.startsWith('RECH_')) {
+        const clienteData = obtenerClienteData();
+        const opciones = SUBMOTIVOS_RECHAZO[subcat] || [];
 
-
-
-async function generarYGuardarPlantilla() {
-    const sot = document.getElementById('campo-sot').value.trim();
-    const telefono = document.getElementById('campo-telefono').value.trim() || 'S/N';
-    const departamento = document.getElementById('campo-departamento').value;
-    const cliente = document.getElementById('campo-cliente').value.trim().toUpperCase() || 'TITULAR';
-    const contrata = document.getElementById('campo-contrata').value.trim().toUpperCase() || 'CONTRATA';
-    const gestion = document.getElementById('cat-principal').value;
-    const colaManual = document.getElementById('cola-manual').value;
-    const submotivo = document.getElementById('sub-motivo').value;
-    const fechaCliente = document.getElementById('fecha-visita').value;
-    const franja = document.getElementById('franja-horaria').value;
-    const idLlamada = document.getElementById('id-llamada').value.trim() || 'S/N';
-
-    if (!sot) return mostrarToast("⚠️ Ingresa o extrae el número de SOT");
-
-    const partesFecha = fechaCliente.split('-');
-    const fechaCorta = partesFecha.length === 3 ? `${partesFecha[2]}/${partesFecha[1]}` : fechaCliente;
-
-    const plantillaTexto = 
-`MESA MULTISKILL HITSS - ${gestion} (${colaManual})
-SOT: ${sot}
-DÍA Y FRANJA: ${fechaCorta} ${franja}
-DEPARTAMENTO: ${departamento}
-CLIENTE: ${cliente}
-NÚMERO: ${telefono}
-CONTRATA: ${contrata}
-MOTIVO: ${submotivo}
-ID DE LLAMADA: ${idLlamada}
-ASESOR: ${usuarioActivo.nombre_completo} (${usuarioActivo.codigo_e})`;
-
-    document.getElementById('plantilla-resultado').value = plantillaTexto;
-
-    try { await navigator.clipboard.writeText(plantillaTexto); } catch (e) {}
-
-    const yaTieneGestionHoy = gestionesDelDiaLocal.some(g => g.sot === sot) ? 'SI' : 'NO';
-    if (yaTieneGestionHoy === 'SI') {
-        if (!confirm(`⚠️ La SOT ${sot} ya registra una gestión previa hoy (se marcará ¿YA TIENE GESTION? = SI). ¿Continuar?`)) return;
+        if (subcat === 'RECH_DUPLICIDAD') {
+            html += `
+                <div class="form-group">
+                    <label>Nro. SOT Duplicada Atendida</label>
+                    <input type="text" id="inputSotDuplicada" placeholder="Ej: 91501234">
+                </div>
+                <div class="form-group">
+                    <label>ID Llamada</label>
+                    <input type="text" id="inputIDLlamada" placeholder="Ej: 17909701296">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label>Submotivo de Rechazo</label>
+                    <select id="selectSubmotivoRechazo">
+                        ${opciones.map(s => `<option value="${s}">${s}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+        } else if (subcat === 'RECH_DIRECCION') {
+            html += `
+                <div class="form-group">
+                    <label>Persona que Contesta</label>
+                    <input type="text" id="inputPersonaContesta" value="${clienteData.cliente}">
+                </div>
+                <div class="form-group">
+                    <label>ID Llamada</label>
+                    <input type="text" id="inputIDLlamada" placeholder="Ej: 17909701296">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label>Dirección Correcta</label>
+                    <input type="text" id="inputDireccionCorrecta" placeholder="Escribe la dirección correcta completa...">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label>Submotivo de Rechazo</label>
+                    <select id="selectSubmotivoRechazo">
+                        ${opciones.map(s => `<option value="${s}">${s}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+        } else if (subcat === 'RECH_SISTEMA') {
+            html += `
+                <div class="form-group" style="grid-column: span 2;">
+                    <label>Submotivo de Rechazo</label>
+                    <select id="selectSubmotivoRechazo">
+                        ${opciones.map(s => `<option value="${s}">${s}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Detalle Error de Sistema</label>
+                    <input type="text" id="inputDetalleSistema" placeholder="Ej: Sin Co_id / Sin workflow">
+                </div>
+                <div class="form-group">
+                    <label>ID Llamada</label>
+                    <input type="text" id="inputIDLlamada" placeholder="Ej: 17909701296">
+                </div>
+            `;
+        } else if (subcat === 'RECH_FRAUDE') {
+            html += `
+                <div class="form-group">
+                    <label>Persona que Contesta</label>
+                    <input type="text" id="inputPersonaContesta" value="${clienteData.cliente}">
+                </div>
+                <div class="form-group">
+                    <label>ID Llamada</label>
+                    <input type="text" id="inputIDLlamada" placeholder="Ej: 17909701296">
+                </div>
+                <div class="form-group">
+                    <label>Customer ID / DNI</label>
+                    <input type="text" id="inputCustomerID" placeholder="Ej: 44868042">
+                </div>
+                <div class="form-group">
+                    <label>Autorizado Por</label>
+                    <input type="text" id="inputAutorizadoPor" placeholder="Ej: SUPERVISOR JUAN PEREZ">
+                </div>
+            `;
+        } else {
+            html += `
+                <div class="form-group">
+                    <label>Persona que Contesta</label>
+                    <input type="text" id="inputPersonaContesta" value="${subcat === 'RECH_CONTACTO' ? 'NO RESPONDE / SIN CONTACTO' : clienteData.cliente}">
+                </div>
+                <div class="form-group">
+                    <label>ID Llamada</label>
+                    <input type="text" id="inputIDLlamada" placeholder="Ej: 17909701296">
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label>Submotivo de Rechazo</label>
+                    <select id="selectSubmotivoRechazo">
+                        ${opciones.map(s => `<option value="${s}">${s}</option>`).join('')}
+                    </select>
+                </div>
+            `;
+        }
     }
 
+    html += '</div>';
+    contenedor.innerHTML = html;
+
+    const inputFecha = document.getElementById('inputFecha');
+    if (inputFecha) {
+        inputFecha.value = fechaToaPorDefecto || obtenerFechaLima();
+        inputFecha.addEventListener('change', actualizarFormatoHabilitarFranja);
+    }
+
+    const selectFranja = document.getElementById('selectFranja');
+    if (selectFranja) {
+        const validFranja = ['AM0', 'AM1', 'AM2', 'PM1', 'PM2'].includes(franjaToaPorDefecto) ? franjaToaPorDefecto : 'AM1';
+        selectFranja.value = validFranja;
+        selectFranja.addEventListener('change', actualizarFormatoHabilitarFranja);
+    }
+}
+
+function v(id) {
+    const el = document.getElementById(id);
+    return el ? el.value.trim() : "";
+}
+
+function obtenerFechaYFranjaFormateada() {
+    const rawFecha = v('inputFecha') || fechaToaPorDefecto || obtenerFechaLima();
+    const franja = v('selectFranja') || franjaToaPorDefecto || 'AM1';
+
+    const partes = rawFecha.split('-');
+    if (partes.length === 3) {
+        return `${partes[2]}/${partes[1]} ${franja}`;
+    }
+    return `${rawFecha} ${franja}`;
+}
+
+async function generarYGuardarPlantilla() {
+    const clienteData = obtenerClienteData();
+    if (!clienteData.sot || clienteData.sot === 'S/N') {
+        return mostrarToast("⚠️ Ingresa o extrae el número de SOT primero");
+    }
+
+    const cat = document.getElementById('selectCategoria').value;
+    const subcat = document.getElementById('selectSubcategoria').value;
+    const colaManual = document.getElementById('cola-manual').value;
+    const idLlamada = v('inputIDLlamada') || "S/N";
+    const fechaVisita = obtenerFechaYFranjaFormateada();
+    const obs = v('inputObs') || "SIN OBSERVACIONES";
+    const motivoDetalle = v('inputMotivoDetalle') || "# Cambios en las fechas y franjas solicitadas";
+    const personaContesta = v('inputPersonaContesta') || clienteData.cliente;
+    const submotivo = v('selectSubmotivoRechazo') || v('selectSubmotivo') || motivoDetalle;
+    const realizadorCompleto = `${usuarioActivo.nombre_completo.toUpperCase()} - ADP MULTISKILL HITSS`;
+
+    let p = "";
+    let gestionBD = "CONFIRMO";
+
+    switch (subcat) {
+        case 'FTOA_GENERAL':
+            gestionBD = "REPROGRAMADO";
+            const ftoa = `*FUERA DE TOA*\n📌 SOT: ${clienteData.sot}\n⚙️ SUB TIPO: ${subTipoExtraido}\n🏡 DIRECCIÓN: ${direccionExtraida}\n📍 DISTRITO: ${distritoExtraido}\n🛠️ SERVICIO: FTTH\n🔑 PLANO: ${planoExtraido}\n👤 CLIENTE: ${clienteData.cliente}\n🔢 COD CLIENTE: ${codClienteExtraido}\n📱 CELULAR DEL CLIENTE: ${clienteData.telefono}\n📅 FECHA Y FRANJA: ${fechaVisita}\n✍️ REALIZADO POR: ${realizadorCompleto}`;
+            const repro = `MESA MULTISKILL HITSS\nREPROGRAMADO EN CAMPO / REAGENDADO POR CLIENTE\nMOTIVO DE REPROGRAMACIÓN: CLIENTE ${motivoDetalle}\nCLIENTE: ${clienteData.cliente}\nTELÉFONO: ${clienteData.telefono}\nNUEVA FECHA Y FRANJA DE VISITA: ${fechaVisita}\nOBSERVACIÓN: ${obs}\nCONTRATA: ${clienteData.contrata}\nREALIZADO POR: ${usuarioActivo.nombre_completo.toUpperCase()}\nCÓD LLAMADA: ${idLlamada}`;
+            p = `${ftoa}\n\n===================================\n\n${repro}`;
+            break;
+
+        case 'CONF_LLAMADA':
+            gestionBD = "CONFIRMO";
+            p = `MESA MULTISKILL HITSS - CONFIRMA VISITA\nSOT: ${clienteData.sot}\nDÍA Y FRANJA: ${fechaVisita}\nCLIENTE: ${clienteData.cliente}\nNUMERO: ${clienteData.telefono}\nCONTRATA: ${clienteData.contrata}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${usuarioActivo.nombre_completo.toUpperCase()}`;
+            break;
+        case 'CONF_ADELANTO':
+            gestionBD = "CONFIRMO";
+            p = `MESA MULTISKILL HITSS - ADELANTA VISITA\nSOT: ${clienteData.sot}\nDÍA Y FRANJA: ${fechaVisita}\nCLIENTE: ${clienteData.cliente}\nNUMERO: ${clienteData.telefono}\nCONTRATA: ${clienteData.contrata}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'CONF_MANTIENE':
+            gestionBD = "CONFIRMO";
+            p = `MESA MULTISKILL HITSS - MANTIENE FECHA DE VISITA\nSOT: ${clienteData.sot}\nDÍA Y FRANJA: ${fechaVisita}\nCLIENTE: ${clienteData.cliente}\nNUMERO: ${clienteData.telefono}\nCONTRATA: ${clienteData.contrata}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${usuarioActivo.nombre_completo.toUpperCase()}`;
+            break;
+        case 'CICLO_CONTACTO':
+            gestionBD = "NO CONTESTA";
+            p = `MESA MULTISKILL HITSS - CICLO DE LLAMADAS\nCICLO DE LLAMADA NRO: ${v('inputCiclo') || '1'}\nCANTIDAD DE LLAMADAS: ${v('inputCantLlamadas') || '4'}\nNUMERO: ${clienteData.telefono}\nMOTIVO: FALTA DE CONTACTO\nSUB-MOTIVO: ${v('selectSubmotivo')}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'REPRO_CLIENTE':
+            gestionBD = "REPROGRAMADO";
+            p = `MESA MULTISKILL HITSS\nREPROGRAMADO EN MESA / REAGENDADO POR CLIENTE\nMOTIVO DE REPROGRAMACIÓN: CLIENTE ${motivoDetalle}\nCLIENTE: ${clienteData.cliente}\nTELÉFONO: ${clienteData.telefono}\nNUEVA FECHA Y FRANJA DE VISITA: ${fechaVisita}\nOBSERVACIÓN: ${obs}\nCONTRATA: ${clienteData.contrata}\nREALIZADO POR: ${realizadorCompleto}\nCÓD LLAMADA: ${idLlamada}`;
+            break;
+        case 'REPRO_CLARO':
+            gestionBD = "REPROGRAMADO";
+            p = `MESA MULTISKILL HITSS\nREPROGRAMADO EN MESA / REAGENDADO POR CLARO\nMOTIVO DE REPROGRAMACIÓN: CLARO ${motivoDetalle}\nCLIENTE: ${clienteData.cliente}\nTELÉFONO: ${clienteData.telefono}\nNUEVA FECHA Y FRANJA DE VISITA: ${fechaVisita}\nOBSERVACIÓN: ${obs}\nCONTRATA: ${clienteData.contrata}\nREALIZADO POR: ${realizadorCompleto}\nCÓD LLAMADA: ${idLlamada}`;
+            break;
+        case 'RECH_NO_DESEA':
+            gestionBD = "RECHAZADO";
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZO EN MESA\nPERSONA QUE CONTESTA: ${personaContesta}\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: CLIENTE NO DESEA EL SERVICIO - MESA\nSUBMOTIVO DE RECHAZO: ${submotivo}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_DUPLICIDAD':
+            gestionBD = "RECHAZADO";
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZADO EN MESA\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: RECHAZADO POR DUPLICIDAD\nSUBMOTIVO DE RECHAZO: ${submotivo}\nSE PROCEDE AL RECHAZO DE LA SOLICITUD POR DUPLICIDAD DE SOT, SE ATENDIÓ CON LA SOT: ${v('inputSotDuplicada') || 'S/N'}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_FACILIDADES':
+            gestionBD = "RECHAZADO";
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZADO EN MESA\nPERSONA QUE CONTESTA: ${personaContesta}\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: FACILIDADES TÉCNICAS DEL CLIENTE\nSUBMOTIVO DE RECHAZO: ${submotivo}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_CONTACTO':
+            gestionBD = "RECHAZADO";
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZO EN MESA\nPERSONA QUE CONTESTA: ${personaContesta}\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: FALTA DE CONTACTO\nSUBMOTIVO DE RECHAZO: ${submotivo}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_DIRECCION':
+            gestionBD = "RECHAZADO";
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZADO EN MESA\nPERSONA QUE CONTESTA: ${personaContesta}\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: MAL INGRESO DE DIRECCIÓN\nDIRECCIÓN CORRECTA: ${v('inputDireccionCorrecta') || 'S/N'}\nSUBMOTIVO DE RECHAZO: ${submotivo}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_OFERTA':
+            gestionBD = "RECHAZADO";
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZADO EN MESA\nPERSONA QUE CONTESTA: ${personaContesta}\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: MALA OFERTA\nSUBMOTIVO DE RECHAZO: ${submotivo}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_SISTEMA':
+            gestionBD = "RECHAZADO";
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZADO EN MESA\nMOTIVO DEL RECHAZO: SOT CON ERRORES EN EL SISTEMA\nSUBMOTIVO DE RECHAZO: ${submotivo}\nSE PROCEDE AL RECHAZO DE LA SOLICITUD POR TENER ERRORES DE SISTEMAS\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+        case 'RECH_FRAUDE':
+            gestionBD = "RECHAZADO";
+            p = `MESA MULTISKILL HITSS\nRECHAZO EN MESA / CAMPO: RECHAZADO EN MESA\nPERSONA QUE CONTESTA: ${personaContesta}\nNUMERO DE CONTACTO: ${clienteData.telefono}\nMOTIVO DEL RECHAZO: POSIBLE FRAUDE\nSUBMOTIVO DE RECHAZO: Cliente ya tiene un servicio activo en la misma dirección\nCUSTOMER ID: ${v('inputCustomerID') || 'S/N'}\nAUTORIZADO POR: ${v('inputAutorizadoPor') || 'S/N'}\nID DE LLAMADA: ${idLlamada}\nREALIZADO POR: ${realizadorCompleto}`;
+            break;
+    }
+
+    document.getElementById('outputPlantilla').value = p;
+    actualizarFormatoHabilitarFranja();
+
+    try { await navigator.clipboard.writeText(p); } catch (e) {}
+
+    const yaTieneGestionHoy = gestionesDelDiaLocal.some(g => g.sot === clienteData.sot) ? 'SI' : 'NO';
+    if (yaTieneGestionHoy === 'SI') {
+        if (!confirm(`⚠️ La SOT ${clienteData.sot} ya registra una gestión previa hoy (se marcará ¿YA TIENE GESTION? = SI). ¿Continuar?`)) return;
+    }
+
+    const fechaDeseaCliente = v('inputFecha') || fechaToaPorDefecto || obtenerFechaLima();
+    const franjaRaw = v('selectFranja') || franjaToaPorDefecto || 'AM1';
+    const franjaBD = ['AM0', 'AM1', 'AM2', 'PM1', 'PM2'].includes(franjaRaw) ? franjaRaw : 'AM1';
     const abrirForms = document.getElementById('check-abrir-forms').checked;
     const ahora = new Date();
+
     const { error } = await supabaseClient.from('gestiones_sot').insert([{
         usuario_e: usuarioActivo.codigo_e,
-        sot: sot,
-        fecha_desea_cliente: fechaCliente,
-        franja: franja,
+        sot: clienteData.sot,
+        fecha_desea_cliente: fechaDeseaCliente,
+        franja: franjaBD,
         hora_inicio: horaInicioActividad,
         hora_finalizacion: ahora.toISOString(),
         fecha_gestion: obtenerFechaLima(),
         intervalo: obtenerHoraLima(),
-        gestion: gestion,
-        submotivo: submotivo,
-        departamento: departamento,
+        gestion: gestionBD,
+        submotivo: submotivo || cat,
+        departamento: clienteData.departamento,
         ya_tiene_gestion: yaTieneGestionHoy,
         sot_gestionada_manual: colaManual,
         id_llamada: idLlamada,
-        cliente_nombre: cliente,
-        telefono_cliente: telefono,
-        contrata: contrata,
+        cliente_nombre: clienteData.cliente,
+        telefono_cliente: clienteData.telefono,
+        contrata: clienteData.contrata,
         enviado_forms: abrirForms
     }]);
 
     horaInicioActividad = new Date().toISOString();
 
     if (error) {
-        mostrarToast("⚠️ Copiada, pero falló guardado en nube: " + error.message);
+        mostrarToast("⚠️ Plantilla copiada, pero falló guardado en nube: " + error.message);
     } else {
-        mostrarToast("🎄 Plantilla copiada y SOT registrada");
+        mostrarToast("✅ Plantilla copiada y SOT registrada en BD");
         cargarDatosPersonalesADP();
     }
 
     if (abrirForms) abrirMicrosoftForms();
 }
 
+function actualizarFormatoHabilitarFranja() {
+    const clienteData = obtenerClienteData();
+    const fechaVisita = obtenerFechaYFranjaFormateada();
+    const supCargo = v('inputSupCargo') || "SIN ASIGNAR";
+
+    const formato = `MESA MULTISKILL HITSS - FORMATO PARA HABILITAR FRANJA\n📥 SOT: ${clienteData.sot}\n🪚 PLANO: ${planoExtraido}\n📅 FECHA Y FRANJA: ${fechaVisita}\n📧 Motivo: SIN FRANJAS DISPONIBLES\n🚨 Sup acargo: ${supCargo}`;
+    const elHabilitar = document.getElementById('outputHabilitarFranja');
+    if (elHabilitar) elHabilitar.value = formato;
+}
+
+function limpiarColumnas1y2() {
+    const rawInput = document.getElementById('rawInput');
+    if (rawInput) rawInput.value = '';
+    ['pvSOT', 'pvTel', 'pvCliente', 'pvContrata', 'outputPlantilla', 'outputHabilitarFranja'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    planoExtraido = "S/N";
+    subTipoExtraido = "S/N";
+    codClienteExtraido = "S/N";
+    direccionExtraida = "S/N";
+    distritoExtraido = "S/N";
+    mostrarToast("🧹 Campos limpiados");
+}
+
 function abrirMicrosoftForms() {
     window.open(URL_MICROSOFT_FORMS, '_blank');
 }
 
-function generarFormatoFranja() {
-    const sup = document.getElementById('sup-franja').value.toUpperCase().trim() || 'SUPERVISOR EN TURNO';
-    const sot = document.getElementById('campo-sot').value.trim() || 'S/N';
-    const franja = document.getElementById('franja-horaria').value;
-    const fecha = document.getElementById('fecha-visita').value;
-
-    document.getElementById('resultado-franja').value = 
-`SOLICITUD DE HABILITACIÓN DE FRANJA
-PARA: ${sup}
-SOT: ${sot}
-FECHA / FRANJA REQUERIDA: ${fecha} - ${franja}
-SOLICITADO POR: ${usuarioActivo.nombre_completo} (${usuarioActivo.codigo_e})`;
-}
-
 // ============================================================================
-// 5. PANEL DE AVANCE PERSONAL Y RANKING DEL ADP (METAS 85 / 45 Y 150 / 90 MIN)
+// 6. PANEL PERSONAL DEL ADP (CON NUEVAS REGLAS <60, >61, >=85)
 // ============================================================================
 function calcularMinutosHablados(listaGestiones) {
     return listaGestiones.reduce((total, g) => {
@@ -506,10 +860,8 @@ async function cargarDatosPersonalesADP() {
 
     gestionesDelDiaLocal = todasHoy.filter(g => g.usuario_e === usuarioActivo.codigo_e);
     const totalMio = gestionesDelDiaLocal.length;
-    const confirmadosMios = gestionesDelDiaLocal.filter(g => g.gestion === 'CONFIRMO').length;
-    
-    const configMeta = METAS_DIARIAS[usuarioActivo.modalidad] || METAS_DIARIAS['Full Time'];
-    const porcentaje = Math.round((totalMio / configMeta.sots) * 100);
+    const estadoRend = evaluarEstadoRendimiento(totalMio, 1);
+    const metaTiempo = METAS_TIEMPO_HABLADO[usuarioActivo.modalidad] || 150;
     const minHablados = Math.round(calcularMinutosHablados(gestionesDelDiaLocal));
 
     let cadenciaTxt = "Sin registros";
@@ -529,9 +881,13 @@ async function cargarDatosPersonalesADP() {
     const rankingOrdenado = Object.entries(conteoPorAsesor).sort((a, b) => b[1] - a[1]);
     const miPosicion = rankingOrdenado.findIndex(item => item[0] === usuarioActivo.codigo_e) + 1;
 
-    document.getElementById('adp-avance-hoy').innerText = `${totalMio} / ${configMeta.sots} SOTs`;
-    document.getElementById('adp-tiempo-hablado').innerText = `${minHablados} / ${configMeta.minutosHablados} min`;
-    document.getElementById('adp-porcentaje').innerText = `${porcentaje}% (${confirmadosMios} Confirm.)`;
+    document.getElementById('adp-avance-hoy').innerText = `${totalMio} / 85 SOTs`;
+    const elEstado = document.getElementById('adp-estado-rendimiento');
+    if (elEstado) {
+        elEstado.innerText = estadoRend.texto;
+        elEstado.style.color = estadoRend.color;
+    }
+    document.getElementById('adp-tiempo-hablado').innerText = `${minHablados} / ${metaTiempo} min`;
     document.getElementById('adp-cadencia').innerText = cadenciaTxt;
     document.getElementById('adp-ranking').innerText = miPosicion > 0 ? `Puesto #${miPosicion} de ${rankingOrdenado.length}` : 'Sin ranking aún';
 
@@ -545,7 +901,7 @@ async function cargarDatosPersonalesADP() {
 
     contenedorBloc.innerHTML = gestionesDelDiaLocal.map((g, index) => {
         const hora = new Date(g.hora_finalizacion).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
-        return `<div class="bloc-item"><strong>${index + 1}. SOT: ${g.sot}</strong> [${hora}] • ${g.franja}\nEstado: <strong>${g.gestion}</strong> (${g.sot_gestionada_manual})\nDepto: ${g.departamento} | ID: ${g.id_llamada}\n************************************</div>`;
+        return `<div class="bloc-item"><strong>${index + 1}. SOT: ${g.sot}</strong> [${hora}] • ${g.franja}\nEstado: <strong>${g.gestion}</strong> (${g.sot_gestionada_manual})\nMotivo: ${g.submotivo}\n************************************</div>`;
     }).join('');
 }
 
@@ -553,7 +909,7 @@ function exportarBlocTXT() {
     if (gestionesDelDiaLocal.length === 0) return mostrarToast("⚠️ No hay registros para exportar");
     const hoy = obtenerFechaLima();
     let contenido = `REPORTE DIARIO MESA MULTISKILL HITSS\nASESOR: ${usuarioActivo.nombre_completo} (${usuarioActivo.codigo_e})\nFECHA: ${hoy}\n====================================\n\n`;
-    
+
     gestionesDelDiaLocal.forEach((g, idx) => {
         contenido += `${idx + 1}.\nSOT: ${g.sot}\nGestion: ${g.gestion}\nFranja: ${g.franja}\nDepartamento: ${g.departamento}\nCola: ${g.sot_gestionada_manual}\nMotivo: ${g.submotivo}\nID Llamada: ${g.id_llamada}\n************************************\n`;
     });
@@ -566,7 +922,7 @@ function exportarBlocTXT() {
 }
 
 // ============================================================================
-// 6. DASHBOARD GERENCIAL DEL ADMINISTRADOR + GRÁFICAS + IMPORTADOR HISTÓRICO
+// 7. DASHBOARD GERENCIAL DEL ADMINISTRADOR (PAGINACIÓN + NUEVAS REGLAS KPI)
 // ============================================================================
 function cambiarModoFiltroAdmin() {
     const modo = document.getElementById('admin-modo-filtro').value;
@@ -576,11 +932,40 @@ function cambiarModoFiltroAdmin() {
 }
 
 function calcularMesesAntiguedad(fechaIngresoStr) {
-    if (!fechaIngresoStr) return '0 meses';
+    if (!fechaIngresoStr) return '0 m';
     const ingreso = new Date(fechaIngresoStr);
     const hoy = new Date();
     const meses = (hoy.getFullYear() - ingreso.getFullYear()) * 12 + (hoy.getMonth() - ingreso.getMonth());
     return `${Math.max(0, meses)} m`;
+}
+
+// Obtener TODAS las filas paginando de 1,000 en 1,000 para leer las 37,549 filas
+async function obtenerTodasLasGestionesFiltradas(modo) {
+    let todas = [];
+    let desde = 0;
+    const paso = 1000;
+
+    while (true) {
+        let q = supabaseClient.from('gestiones_sot').select('*').range(desde, desde + paso - 1);
+        if (modo === 'dia') {
+            const fecha = document.getElementById('admin-filtro-fecha').value;
+            q = q.eq('fecha_gestion', fecha);
+        } else if (modo === 'mes') {
+            const mes = document.getElementById('admin-filtro-mes').value;
+            q = q.gte('fecha_gestion', `${mes}-01`).lte('fecha_gestion', `${mes}-31`);
+        }
+
+        const { data, error } = await q;
+        if (error) {
+            console.error(error);
+            break;
+        }
+        if (!data || data.length === 0) break;
+        todas = todas.concat(data);
+        if (data.length < paso) break;
+        desde += paso;
+    }
+    return todas;
 }
 
 async function cargarDashboardSupervisor() {
@@ -591,36 +976,26 @@ async function cargarDashboardSupervisor() {
     if (filtroArea !== 'TODAS') queryAsesores = queryAsesores.eq('area', filtroArea);
     const { data: asesores } = await queryAsesores;
 
-    let queryGestiones = supabaseClient.from('gestiones_sot').select('*');
+    const gestiones = await obtenerTodasLasGestionesFiltradas(modo);
+
     let diasActivos = 1;
-
-    if (modo === 'dia') {
-        const fecha = document.getElementById('admin-filtro-fecha').value;
-        queryGestiones = queryGestiones.eq('fecha_gestion', fecha);
-    } else if (modo === 'mes') {
-        const mes = document.getElementById('admin-filtro-mes').value;
-        queryGestiones = queryGestiones.gte('fecha_gestion', `${mes}-01`).lte('fecha_gestion', `${mes}-31`);
-    }
-
-    const { data: gestiones, error } = await queryGestiones;
-    if (error) return console.error(error);
-
-    if (modo !== 'dia' && gestiones && gestiones.length > 0) {
+    if (modo !== 'dia' && gestiones.length > 0) {
         const fechasUnicas = new Set(gestiones.map(g => g.fecha_gestion));
         diasActivos = Math.max(1, fechasUnicas.size);
     }
 
     const filasProcesadas = (asesores || []).map(adp => {
-        const susGestiones = (gestiones || [])
+        const susGestiones = gestiones
             .filter(g => g.usuario_e === adp.codigo_e)
             .sort((a, b) => new Date(a.hora_finalizacion) - new Date(b.hora_finalizacion));
 
         const total = susGestiones.length;
-        const configMeta = METAS_DIARIAS[adp.modalidad] || METAS_DIARIAS['Full Time'];
-        const metaSots = configMeta.sots * diasActivos;
-        const metaMin = configMeta.minutosHablados * diasActivos;
+        // Calcular días trabajados por ese asesor en el rango para evaluar su promedio diario
+        const diasDelAsesor = modo === 'dia' ? 1 : Math.max(1, new Set(susGestiones.map(g => g.fecha_gestion)).size);
+        const estadoRend = evaluarEstadoRendimiento(total, diasDelAsesor);
+
+        const metaMin = (METAS_TIEMPO_HABLADO[adp.modalidad] || 150) * diasDelAsesor;
         const minHablados = Math.round(calcularMinutosHablados(susGestiones));
-        const cumple = total >= metaSots && minHablados >= metaMin;
 
         let cadenciaMin = null;
         if (total > 1) {
@@ -636,7 +1011,7 @@ async function cargarDashboardSupervisor() {
         const rech = susGestiones.filter(g => g.gestion === 'RECHAZADO').length;
         const repro = susGestiones.filter(g => g.gestion === 'REPROGRAMADO').length;
 
-        return { adp, total, metaSots, minHablados, metaMin, cumple, cadenciaMin, horas, conf, noCont, rech, repro };
+        return { adp, total, estadoRend, minHablados, metaMin, cadenciaMin, horas, conf, noCont, rech, repro };
     }).sort((a, b) => b.total - a.total);
 
     const totalMesa = filasProcesadas.reduce((acc, f) => acc + f.total, 0);
@@ -648,15 +1023,17 @@ async function cargarDashboardSupervisor() {
 
     const pctConf = totalMesa > 0 ? Math.round((totalConf / totalMesa) * 100) : 0;
     const pctContactabilidad = totalMesa > 0 ? Math.round((totalContactados / totalMesa) * 100) : 0;
-    const totalCumplen = filasProcesadas.filter(f => f.cumple).length;
+
+    const totalCumplenMeta = filasProcesadas.filter(f => f.estadoRend.texto === 'CUMPLE LA META').length;
+    const totalMedio = filasProcesadas.filter(f => f.estadoRend.texto === 'RENDIMIENTO MEDIO').length;
 
     const promMinHablados = filasProcesadas.length > 0
         ? Math.round(filasProcesadas.reduce((a, f) => a + f.minHablados, 0) / filasProcesadas.length)
         : 0;
 
-    document.getElementById('kpi-global-sots').innerText = totalMesa;
+    document.getElementById('kpi-global-sots').innerText = totalMesa.toLocaleString('es-PE');
     document.getElementById('kpi-global-efectividad').innerText = `${pctConf}% / ${pctContactabilidad}%`;
-    document.getElementById('kpi-global-cumplen').innerText = `${totalCumplen} / ${filasProcesadas.length}`;
+    document.getElementById('kpi-global-cumplen').innerText = `${totalCumplenMeta} Meta / ${totalMedio} Medio`;
     document.getElementById('kpi-global-cadencia').innerText = `${promMinHablados} min prom.`;
 
     renderizarGraficasAdmin(filasProcesadas, { totalConf, totalNoCont, totalRech, totalRepro });
@@ -674,9 +1051,9 @@ async function cargarDashboardSupervisor() {
             <td>${f.noCont}</td>
             <td>${f.rech}</td>
             <td>${f.repro}</td>
-            <td><strong>${f.total}</strong> / ${f.metaSots}</td>
+            <td><strong>${f.total}</strong> / ${f.estadoRend.metaReferencia}</td>
             <td><strong>${f.minHablados}</strong> / ${f.metaMin}m</td>
-            <td><span class="${f.cumple ? 'badge-ok' : 'badge-warn'}">${f.cumple ? 'CUMPLE' : 'BAJO META'}</span></td>
+            <td><span class="${f.estadoRend.clase}" style="background:${f.estadoRend.color}20; color:${f.estadoRend.color}; padding:3px 7px; border-radius:5px; font-weight:700;">${f.estadoRend.texto}</span></td>
             <td>${f.cadenciaMin ? `${f.cadenciaMin}m` : '-'}</td>
         </tr>
     `).join('');
@@ -729,80 +1106,6 @@ function renderizarGraficasAdmin(filas, totalesGestion) {
     });
 }
 
-// IMPORTADOR MASIVO DESDE CSV DE EXCEL
-function abrirModalImportar() { document.getElementById('modal-importar').style.display = 'flex'; }
-function cerrarModalImportar() { document.getElementById('modal-importar').style.display = 'none'; }
-
-async function procesarCSVHistorico() {
-    const fileInput = document.getElementById('archivo-csv-historico');
-    const status = document.getElementById('estado-importacion');
-    if (!fileInput.files.length) return alert("Selecciona primero el archivo .csv exportado de tu Excel.");
-
-    status.innerText = "⏳ Leyendo archivo y validando usuarios...";
-    const text = await fileInput.files[0].text();
-    const sep = text.includes(';') ? ';' : ',';
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length < 2) return status.innerText = "❌ El archivo está vacío.";
-
-    const headers = lines[0].split(sep).map(h => h.trim().toUpperCase().replace(/"/g, ''));
-    const { data: usuariosValidos } = await supabaseClient.from('usuarios').select('codigo_e');
-    const setUsuarios = new Set((usuariosValidos || []).map(u => u.codigo_e));
-
-    const registros = [];
-    for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(sep).map(c => c.trim().replace(/"/g, ''));
-        const row = {};
-        headers.forEach((h, idx) => row[h] = cols[idx] || '');
-
-        const usuarioE = (row['USUARIO'] || row['USUARIO_E'] || '').toUpperCase().trim();
-        const sot = row['SOT'] || '';
-        if (!usuarioE || !sot || !setUsuarios.has(usuarioE)) continue;
-
-        let gestion = (row['GESTION'] || 'CONFIRMO').toUpperCase().trim();
-        if (!['CONFIRMO', 'NO CONTESTA', 'RECHAZADO', 'REPROGRAMADO'].includes(gestion)) gestion = 'CONFIRMO';
-
-        let franja = (row['FRANJA'] || 'AM1').toUpperCase().trim();
-        if (!['AM0', 'AM1', 'AM2', 'PM1', 'PM2'].includes(franja)) franja = 'AM1';
-
-        const fechaRaw = row['FECHA DE GESTION'] || row['FECHA_GESTION'] || obtenerFechaLima();
-        const fechaNorm = fechaRaw.includes('/') ? fechaRaw.split('/').reverse().join('-') : fechaRaw;
-        const intervalo = parseInt(row['INTERVALO'] || '10', 10) || 10;
-
-        registros.push({
-            usuario_e: usuarioE,
-            sot: sot,
-            fecha_desea_cliente: fechaNorm,
-            franja: franja,
-            fecha_gestion: fechaNorm,
-            intervalo: intervalo,
-            gestion: gestion,
-            submotivo: row['SUBMOTIVO'] || 'Importado de Excel histórico',
-            departamento: (row['DEPARTAMENTO'] || 'LIMA').toUpperCase(),
-            ya_tiene_gestion: (row['¿YA TIENE GESTION?'] || 'NO').toUpperCase() === 'SI' ? 'SI' : 'NO',
-            sot_gestionada_manual: row['SOT GESTIONADA MANUAL'] || 'PROGRAMACIONES D+1',
-            id_llamada: row['ID DE LLAMADA'] || 'HISTORICO'
-        });
-    }
-
-    if (registros.length === 0) {
-        status.innerText = "⚠️ No se encontraron filas con Usuarios E válidos en el padrón.";
-        return;
-    }
-
-    status.innerText = `⏳ Subiendo ${registros.length} gestiones históricas a Supabase...`;
-    for (let i = 0; i < registros.length; i += 200) {
-        const lote = registros.slice(i, i + 200);
-        const { error } = await supabaseClient.from('gestiones_sot').insert(lote);
-        if (error) {
-            status.innerText = "❌ Error al subir lote: " + error.message;
-            return;
-        }
-    }
-
-    status.innerText = `✅ ¡Éxito! Se cargaron ${registros.length} registros históricos.`;
-    cargarDashboardSupervisor();
-}
-
 function exportarReporteAdminCSV() {
     const tabla = document.getElementById('tabla-reporte-admin');
     let csv = [];
@@ -818,18 +1121,11 @@ function exportarReporteAdminCSV() {
 }
 
 // ============================================================================
-// 7. UTILIDADES
+// 8. UTILIDADES
 // ============================================================================
-function limpiarCampos() {
-    ['texto-toa', 'campo-sot', 'campo-telefono', 'campo-cliente', 'campo-contrata', 'plantilla-resultado'].forEach(id => {
-        document.getElementById(id).value = '';
-    });
-    mostrarToast("🧹 Campos limpiados");
-}
-
 function copiarTextoElemento(id) {
     const el = document.getElementById(id);
-    if (!el.value) return mostrarToast("⚠️ No hay texto para copiar");
+    if (!el || !el.value) return mostrarToast("⚠️ No hay texto para copiar");
     navigator.clipboard.writeText(el.value);
     mostrarToast("📋 Texto copiado al portapapeles");
 }
