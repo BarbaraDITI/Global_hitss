@@ -222,44 +222,125 @@ function cerrarSesion() {
 // ============================================================================
 // 4. OPERACIÓN DEL ASESOR
 // ============================================================================
-function procesarTextoTOA() {
-    const raw = document.getElementById('texto-toa').value;
-    if (!raw.trim()) return mostrarToast("⚠️ Pega el texto de TOA primero");
+async function procesarCSVHistorico() {
+    const fileInput = document.getElementById('archivo-csv-historico');
+    const status = document.getElementById('estado-importacion');
+    if (!fileInput.files.length) return alert("Selecciona primero el archivo .csv exportado de tu Excel.");
 
-    horaInicioActividad = new Date().toISOString();
+    status.innerText = "⏳ Leyendo archivo y analizando columnas...";
+    const text = await fileInput.files[0].text();
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) {
+        status.innerText = "❌ El archivo está vacío.";
+        return;
+    }
 
-    const sotMatch = raw.match(/(?:SOT|Orden|Actividad)[:\s#-]*(\d{7,10})/i) || raw.match(/\b(\d{8,9})\b/);
-    const telMatch = raw.match(/(?:Tel[eé]fono|Celular|M[oó]vil|Contacto)[:\s]*([9]\d{8})/i) || raw.match(/\b(9\d{8})\b/);
-    const clienteMatch = raw.match(/(?:Cliente|Titular|Nombre)[:\s]*([A-ZÁÉÍÓÚÑ\s]{5,45})(?:\n|Tel|Dir|SOT|$)/i);
-    const contrataMatch = raw.match(/(?:Contrata|Empresa|Proveedor)[:\s]*([A-Z0-9\s.-]{3,30})(?:\n|$)/i);
+    // Buscar automáticamente la fila de encabezados (contiene SOT y USUARIO)
+    let headerIdx = lines.findIndex(l => l.toUpperCase().includes('SOT') && l.toUpperCase().includes('USUARIO'));
+    if (headerIdx === -1) headerIdx = 0;
 
-    document.getElementById('campo-sot').value = sotMatch ? sotMatch[1] : '';
-    document.getElementById('campo-telefono').value = telMatch ? telMatch[1] : '';
-    document.getElementById('campo-cliente').value = clienteMatch ? clienteMatch[1].trim().toUpperCase() : '';
-    document.getElementById('campo-contrata').value = contrataMatch ? contrataMatch[1].trim().toUpperCase() : 'SAVAL';
+    const headerLine = lines[headerIdx];
+    const sep = (headerLine.match(/;/g) || []).length >= (headerLine.match(/,/g) || []).length ? ';' : ',';
+    const headers = headerLine.split(sep).map(h => h.trim().toUpperCase().replace(/^"|"$/g, '').replace(/\s+/g, ' '));
 
-    const selectDepto = document.getElementById('campo-departamento');
-    const textoUpper = raw.toUpperCase();
-    for (let opt of selectDepto.options) {
-        if (textoUpper.includes(opt.value)) {
-            selectDepto.value = opt.value;
-            break;
+    // Buscar columnas de usuario y SOT de forma flexible
+    const colUsuario = headers.find(h => h === 'USUARIO' || h === 'USUARIO E' || h === 'USUARIO_E' || h.includes('CODIGO') || h.includes('ASESOR'));
+    const colSot = headers.find(h => h === 'SOT' || h.includes('SOT'));
+
+    if (!colUsuario || !colSot) {
+        status.innerText = `❌ No se detectaron columnas USUARIO y SOT. Encabezados leídos: ${headers.slice(0, 8).join(' | ')}`;
+        return;
+    }
+
+    const { data: usuariosValidos, error: errUsers } = await supabaseClient.from('usuarios').select('codigo_e');
+    if (errUsers) {
+        status.innerText = "❌ Error consultando usuarios en Supabase: " + errUsers.message;
+        return;
+    }
+
+    // Normalizar códigos E (sin guiones ni espacios) para cruzar sin fallos
+    const mapaUsuarios = new Map();
+    (usuariosValidos || []).forEach(u => {
+        const norm = u.codigo_e.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        mapaUsuarios.set(norm, u.codigo_e);
+    });
+
+    const registros = [];
+    let ejemploNoEncontrado = '';
+
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+        const cols = lines[i].split(sep).map(c => c.trim().replace(/^"|"$/g, ''));
+        const row = {};
+        headers.forEach((h, idx) => row[h] = cols[idx] || '');
+
+        const rawUser = (row[colUsuario] || '').toUpperCase().trim();
+        const userNorm = rawUser.replace(/[^A-Z0-9]/g, '');
+        const sot = (row[colSot] || '').trim();
+
+        if (!userNorm || !sot) continue;
+
+        if (!mapaUsuarios.has(userNorm)) {
+            if (!ejemploNoEncontrado) ejemploNoEncontrado = rawUser;
+            continue;
+        }
+
+        const codigoExactoBD = mapaUsuarios.get(userNorm);
+
+        let gestion = (row['GESTION'] || row['GESTIÓN'] || 'CONFIRMO').toUpperCase().trim();
+        if (!['CONFIRMO', 'NO CONTESTA', 'RECHAZADO', 'REPROGRAMADO'].includes(gestion)) {
+            if (gestion.includes('NO CONT')) gestion = 'NO CONTESTA';
+            else if (gestion.includes('RECH')) gestion = 'RECHAZADO';
+            else if (gestion.includes('REPRO')) gestion = 'REPROGRAMADO';
+            else gestion = 'CONFIRMO';
+        }
+
+        let franja = (row['FRANJA'] || 'AM1').toUpperCase().trim();
+        if (!['AM0', 'AM1', 'AM2', 'PM1', 'PM2'].includes(franja)) franja = 'AM1';
+
+        const fechaRaw = (row['FECHA DE GESTION'] || row['FECHA_GESTION'] || row['FECHA'] || obtenerFechaLima()).split(' ')[0];
+        let fechaNorm = obtenerFechaLima();
+        if (fechaRaw.includes('/')) {
+            const p = fechaRaw.split('/');
+            if (p.length === 3) fechaNorm = `${p[2].padStart(4, '20')}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+        } else if (fechaRaw.includes('-')) {
+            fechaNorm = fechaRaw;
+        }
+
+        const intervalo = parseInt(row['INTERVALO'] || '10', 10) || 10;
+
+        registros.push({
+            usuario_e: codigoExactoBD,
+            sot: sot,
+            fecha_desea_cliente: fechaNorm,
+            franja: franja,
+            fecha_gestion: fechaNorm,
+            intervalo: Math.min(23, Math.max(0, intervalo)),
+            gestion: gestion,
+            submotivo: row['SUBMOTIVO'] || 'Importado de Excel histórico',
+            departamento: (row['DEPARTAMENTO'] || 'LIMA').toUpperCase(),
+            ya_tiene_gestion: (row['¿YA TIENE GESTION?'] || row['YA TIENE GESTION'] || 'NO').toUpperCase() === 'SI' ? 'SI' : 'NO',
+            sot_gestionada_manual: row['SOT GESTIONADA MANUAL'] || 'PROGRAMACIONES D+1',
+            id_llamada: row['ID DE LLAMADA'] || row['ID LLAMADA'] || 'HISTORICO'
+        });
+    }
+
+    if (registros.length === 0) {
+        status.innerText = `⚠️ 0 filas válidas. Total usuarios en BD: ${mapaUsuarios.size}. Ejemplo de usuario leído en CSV no hallado en BD: "${ejemploNoEncontrado || 'vacío'}"`;
+        return;
+    }
+
+    status.innerText = `⏳ Subiendo ${registros.length} gestiones históricas a Supabase...`;
+    for (let i = 0; i < registros.length; i += 200) {
+        const lote = registros.slice(i, i + 200);
+        const { error } = await supabaseClient.from('gestiones_sot').insert(lote);
+        if (error) {
+            status.innerText = "❌ Error al subir lote: " + error.message;
+            return;
         }
     }
-    mostrarToast("✅ Datos extraídos de TOA");
-}
 
-function actualizarSubcategorias() {
-    const cat = document.getElementById('cat-principal').value;
-    const selectSub = document.getElementById('sub-motivo');
-    if (!selectSub) return;
-    selectSub.innerHTML = '';
-    (SUBMOTIVOS_CONFIG[cat] || []).forEach(sub => {
-        const opt = document.createElement('option');
-        opt.value = sub;
-        opt.innerText = sub;
-        selectSub.appendChild(opt);
-    });
+    status.innerText = `✅ ¡Éxito! Se cargaron ${registros.length} registros históricos.`;
+    cargarDashboardSupervisor();
 }
 
 async function generarYGuardarPlantilla() {
